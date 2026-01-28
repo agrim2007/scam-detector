@@ -1,0 +1,7 @@
+{
+  "name": "PriceScan",
+  "description": "AI-powered product scanning and price comparison tool.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
