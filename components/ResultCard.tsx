@@ -1,29 +1,23 @@
 import React from 'react';
-import { ProductResult } from '../types';
+import { ResultCardProps } from '../types'; // <--- Importing from the shared file
 import { 
-  CheckCircle, 
-  ScanLine, 
-  Bookmark, 
+  X, 
   ExternalLink, 
-  Loader2,
-  Globe
+  Tag, 
+  Search
 } from 'lucide-react';
 
-interface ResultCardProps {
-  result: ProductResult | null;
-  loading: boolean;
-  capturedImage: string;
-  onReset: () => void;
-}
-
-export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, capturedImage, onReset }) => {
+export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset, capturedImage }) => {
   
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 bg-gray-900/90 backdrop-blur-xl rounded-3xl border border-gray-700 shadow-2xl">
-        <Loader2 className="w-12 h-12 text-cyan-400 animate-spin mb-4" />
-        <h3 className="text-xl font-semibold text-white">Analyzing Product...</h3>
-        <p className="text-gray-400 text-sm mt-2">Searching live retailer prices</p>
+      <div className="w-full max-w-sm bg-gray-900/80 backdrop-blur-xl p-8 rounded-3xl text-white text-center border border-white/10 shadow-2xl animate-pulse flex flex-col items-center">
+        <div className="relative w-16 h-16 mb-6">
+          <div className="absolute inset-0 border-4 border-gray-600 rounded-full"></div>
+          <div className="absolute inset-0 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <h2 className="text-xl font-bold tracking-wide">Analyzing Image...</h2>
+        <p className="text-gray-400 text-sm mt-3 font-medium">Identifying product & scanning prices</p>
       </div>
     );
   }
@@ -31,98 +25,75 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, capture
   if (!result) return null;
 
   return (
-    <div className="w-full max-w-md bg-[#1C1C1E] rounded-[32px] overflow-hidden shadow-2xl border border-gray-800 max-h-[90vh] overflow-y-auto scrollbar-hide">
+    <div className="w-full max-w-md bg-gray-900/90 backdrop-blur-xl rounded-3xl overflow-hidden border border-white/10 shadow-2xl animate-fade-in-up transition-all duration-300">
       
-      {/* Header */}
-      <div className="px-6 py-5 flex items-center justify-between border-b border-gray-800 sticky top-0 bg-[#1C1C1E] z-10">
-        <div className="flex items-center gap-2">
-           <ScanLine className="w-4 h-4 text-cyan-400" />
-           <span className="text-xs font-bold text-cyan-400 tracking-wider">SCAN COMPLETE</span>
-        </div>
-        <div className="flex items-center gap-1.5 bg-[#0F362E] px-3 py-1 rounded-full border border-[#165B4A]">
-           <CheckCircle className="w-3 h-3 text-emerald-400" />
-           <span className="text-[10px] font-semibold text-emerald-400">Verified</span>
-        </div>
+      {/* Header Image Preview */}
+      <div className="relative h-32 w-full bg-black/50">
+        <img 
+          src={capturedImage || result.imageUrl} 
+          alt="Product" 
+          className="w-full h-full object-cover opacity-60"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent" />
+        
+        <button 
+          onClick={onReset} 
+          className="absolute top-4 right-4 p-2 bg-black/40 hover:bg-black/60 backdrop-blur-md rounded-full text-white transition-colors border border-white/10"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
-      <div className="p-6 flex flex-col items-center">
-        
-        {/* Product Image Halo */}
-        <div className="relative mb-6 shrink-0">
-           <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full transform scale-110" />
-           <div className="relative w-40 h-40 rounded-full p-1 bg-gradient-to-b from-gray-700 to-gray-900 shadow-xl overflow-hidden">
-              <img 
-                src={result.imageUrl} 
-                alt={result.name}
-                className="w-full h-full object-cover"
-              />
-           </div>
+      {/* Content Body */}
+      <div className="p-6 -mt-4 relative">
+        <div className="flex items-center gap-2 mb-3">
+          <div className={`px-2 py-1 rounded-md text-[10px] font-bold tracking-wider border ${
+            result.confidence > 80 
+              ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+              : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+          }`}>
+            {result.confidence}% MATCH
+          </div>
         </div>
 
-        {/* Product Info */}
-        <h2 className="text-2xl font-bold text-white text-center mb-1 leading-tight">{result.name}</h2>
-        <p className="text-sm text-gray-400 text-center mb-6">{result.description}</p>
+        <h2 className="text-2xl font-bold text-white mb-2 leading-tight shadow-black drop-shadow-md">
+          {result.name}
+        </h2>
 
-        {/* Price Card */}
-        <div className="w-full bg-[#151516] border border-gray-800 rounded-xl p-4 mb-6 flex flex-col items-center">
-            <span className="text-[10px] text-gray-500 font-bold tracking-wider uppercase mb-1">Estimated Market Value</span>
-            <div className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400">
-                ${result.priceMin} - ${result.priceMax}
-            </div>
-        </div>
+        <p className="text-gray-400 text-sm mb-6 leading-relaxed border-l-2 border-gray-700 pl-3">
+          {result.description}
+        </p>
 
-        {/* Actions */}
-        <div className="w-full space-y-3 mb-6">
-            <a 
-              href={result.shopUrl} 
-              target="_blank" 
-              rel="noreferrer"
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 text-white font-semibold shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-            >
-               <ExternalLink className="w-5 h-5" />
-               View Best Deal
-            </a>
-            
-            <button onClick={onReset} className="w-full py-4 rounded-2xl bg-[#2C2C2E] hover:bg-[#3A3A3C] text-white font-semibold border border-gray-700 flex items-center justify-center gap-2 transition-all">
-               <ScanLine className="w-5 h-5" />
-               Scan Another
-            </button>
-        </div>
-
-        {/* Sources Section (Grounding) */}
-        {result.sources && result.sources.length > 0 && (
-          <div className="w-full border-t border-gray-800 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wider">Sources Found</h4>
-            <div className="flex flex-col gap-2">
-              {result.sources.map((source, index) => {
-                if (!source.web?.uri) return null;
-                return (
-                  <a 
-                    key={index}
-                    href={source.web.uri}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors group"
-                  >
-                    <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center shrink-0">
-                      <Globe className="w-4 h-4 text-gray-400 group-hover:text-cyan-400" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-gray-300 truncate group-hover:text-white">
-                        {source.web.title || new URL(source.web.uri).hostname}
-                      </p>
-                      <p className="text-[10px] text-gray-600 truncate">
-                        {source.web.uri}
-                      </p>
-                    </div>
-                    <ExternalLink className="w-3 h-3 text-gray-600 group-hover:text-gray-400" />
-                  </a>
-                );
-              })}
+        <div className="bg-white/5 rounded-xl p-4 mb-6 border border-white/10 flex items-center justify-between">
+          <div>
+            <p className="text-gray-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1">
+              <Tag className="w-3 h-3" /> Est. Market Price
+            </p>
+            <div className="text-2xl font-mono text-cyan-400 font-bold tracking-tight">
+              ${result.priceMin} - ${result.priceMax}
             </div>
           </div>
-        )}
+        </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={onReset} 
+            className="py-3.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-medium transition-colors flex items-center justify-center gap-2"
+          >
+            <Search className="w-4 h-4" />
+            Scan Again
+          </button>
+          
+          <a 
+            href={result.shopUrl} 
+            target="_blank" 
+            rel="noreferrer"
+            className="py-3.5 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-center transition-colors flex items-center justify-center gap-2"
+          >
+            View Shop
+            <ExternalLink className="w-4 h-4" />
+          </a>
+        </div>
       </div>
     </div>
   );

@@ -10,12 +10,14 @@ export default defineConfig(({ mode }) => {
       'process.env.API_KEY': JSON.stringify(env.API_KEY)
     },
     server: {
-      host: true // Expose to network for mobile testing
+      port: 5174,       // <--- Forces port 5174
+      strictPort: true, // <--- Fails if port is busy (prevents switching to 5175)
+      host: true        // Expose to network for mobile testing
     },
     build: {
-      target: 'esnext', // Generates smaller, faster code for modern browsers
-      minify: 'esbuild', // Fast minification
-      reportCompressedSize: false, // Speeds up build time
+      target: 'esnext',
+      minify: 'esbuild',
+      reportCompressedSize: false,
     }
   };
 });
