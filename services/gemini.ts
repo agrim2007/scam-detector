@@ -1,14 +1,11 @@
 import Groq from "groq-sdk";
 
 // Initialize the Groq SDK
-// Ensure you add VITE_GROQ_API_KEY to your .env file
 const groq = new Groq({
   apiKey: import.meta.env.VITE_GROQ_API_KEY as string,
-  dangerouslyAllowBrowser: true // Required if running directly in a Vite client-side app
+  dangerouslyAllowBrowser: true 
 });
 
-// Helper: Compress image to reduce upload size and latency
-// (Kept identical to your original code)
 async function compressImage(base64Src: string): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -37,8 +34,6 @@ async function compressImage(base64Src: string): Promise<string> {
       
       const ctx = canvas.getContext('2d');
       ctx?.drawImage(img, 0, 0, width, height);
-      
-      // Compress to JPEG with 0.6 quality
       resolve(canvas.toDataURL('image/jpeg', 0.6));
     };
     img.onerror = () => {
@@ -49,12 +44,8 @@ async function compressImage(base64Src: string): Promise<string> {
 
 export async function identifyProduct(imageSrc: string) {
   try {
-    // 1. Compress Image Client-Side
-    // Groq accepts data URLs (e.g., "data:image/jpeg;base64,...") directly
     const optimizedImage = await compressImage(imageSrc);
 
-    // 2. Prepare the JSON Schema definition for the prompt
-    // Groq models need explicit instructions for JSON structure in the prompt
     const jsonStructure = JSON.stringify({
       name: "string (precise product name)",
       description: "string (short description)",
@@ -63,7 +54,6 @@ export async function identifyProduct(imageSrc: string) {
       shopUrl: "string (search URL)"
     });
 
-    // 3. Configure Model & Messages
     const chatCompletion = await groq.chat.completions.create({
       messages: [
         {
@@ -78,21 +68,19 @@ export async function identifyProduct(imageSrc: string) {
             {
               type: "image_url",
               image_url: {
-                url: optimizedImage, // Pass the Data URL directly
+                url: optimizedImage,
               },
             },
           ],
         },
       ],
-      // Use Llama 3.2 Vision (11b or 90b are standard for vision on Groq)
-      model: "llama-3.2-11b-vision-preview", 
+      // UPDATED: This is the new model supported by Groq for Vision
+      model: "meta-llama/llama-4-scout-17b-16e-instruct", 
       
-      // Enforce JSON mode
       response_format: { type: "json_object" },
-      temperature: 0.1, // Low temperature for factual consistency
+      temperature: 0.1, 
     });
 
-    // 4. Parse Response
     const content = chatCompletion.choices[0]?.message?.content;
     
     if (!content) throw new Error("No content received from Groq");
