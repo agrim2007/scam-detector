@@ -1,17 +1,21 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
-// Initialize the standard Generative AI SDK
-// Note: Use import.meta.env for Vite-based projects instead of process.env
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_API_KEY as string);
+// Initialize the Groq SDK
+// Ensure you add VITE_GROQ_API_KEY to your .env file
+const groq = new Groq({
+  apiKey: import.meta.env.VITE_GROQ_API_KEY as string,
+  dangerouslyAllowBrowser: true // Required if running directly in a Vite client-side app
+});
 
 // Helper: Compress image to reduce upload size and latency
+// (Kept identical to your original code)
 async function compressImage(base64Src: string): Promise<string> {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Src;
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 512; // 512px is optimal for speed
+      const MAX_WIDTH = 512; 
       
       let width = img.width;
       let height = img.height;
@@ -34,7 +38,7 @@ async function compressImage(base64Src: string): Promise<string> {
       const ctx = canvas.getContext('2d');
       ctx?.drawImage(img, 0, 0, width, height);
       
-      // Compress to JPEG with 0.6 quality for faster transmission
+      // Compress to JPEG with 0.6 quality
       resolve(canvas.toDataURL('image/jpeg', 0.6));
     };
     img.onerror = () => {
@@ -46,48 +50,58 @@ async function compressImage(base64Src: string): Promise<string> {
 export async function identifyProduct(imageSrc: string) {
   try {
     // 1. Compress Image Client-Side
+    // Groq accepts data URLs (e.g., "data:image/jpeg;base64,...") directly
     const optimizedImage = await compressImage(imageSrc);
-    const base64Data = optimizedImage.split(',')[1];
 
-    // 2. Configure Model (Gemini 1.5 Flash)
-    // Using 1.5-flash for speed and stability with the standard SDK
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: SchemaType.OBJECT,
-          properties: {
-            name: { type: SchemaType.STRING },
-            description: { type: SchemaType.STRING },
-            priceMin: { type: SchemaType.NUMBER },
-            priceMax: { type: SchemaType.NUMBER },
-            shopUrl: { type: SchemaType.STRING },
-          },
-          required: ["name", "description", "priceMin", "priceMax", "shopUrl"]
-        }
-      }
+    // 2. Prepare the JSON Schema definition for the prompt
+    // Groq models need explicit instructions for JSON structure in the prompt
+    const jsonStructure = JSON.stringify({
+      name: "string (precise product name)",
+      description: "string (short description)",
+      priceMin: "number (min estimated price in USD)",
+      priceMax: "number (max estimated price in USD)",
+      shopUrl: "string (search URL)"
     });
 
-    // 3. Prepare Prompt
-    const prompt = "Identify this product (precise name, model). Estimate its current market price range in USD based on your knowledge. Provide a generic search URL.";
-    const imagePart = {
-      inlineData: {
-        data: base64Data,
-        mimeType: "image/jpeg",
-      },
-    };
+    // 3. Configure Model & Messages
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Identify this product (precise name, model). Estimate its current market price range in USD. 
+                     Return ONLY a valid JSON object with the following structure, no markdown formatting:
+                     ${jsonStructure}`
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: optimizedImage, // Pass the Data URL directly
+              },
+            },
+          ],
+        },
+      ],
+      // Use Llama 3.2 Vision (11b or 90b are standard for vision on Groq)
+      model: "llama-3.2-11b-vision-preview", 
+      
+      // Enforce JSON mode
+      response_format: { type: "json_object" },
+      temperature: 0.1, // Low temperature for factual consistency
+    });
 
-    // 4. Generate Content
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const text = response.text();
+    // 4. Parse Response
+    const content = chatCompletion.choices[0]?.message?.content;
+    
+    if (!content) throw new Error("No content received from Groq");
 
     let data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(content);
     } catch (e) {
-      console.error("Failed to parse JSON:", text);
+      console.error("Failed to parse JSON:", content);
       throw new Error("Failed to interpret AI response");
     }
 
@@ -98,13 +112,12 @@ export async function identifyProduct(imageSrc: string) {
       priceMax: data.priceMax || 0,
       confidence: 90, 
       imageUrl: imageSrc, 
-      // Fallback URL since 1.5-flash standard doesn't return grounding metadata in the same way
       shopUrl: data.shopUrl || `https://www.google.com/search?q=${encodeURIComponent(data.name || 'product')}`,
       sources: [] 
     };
 
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    console.error("Groq API Error:", error);
     throw error;
   }
 }
