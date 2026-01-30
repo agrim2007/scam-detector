@@ -68,14 +68,21 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
           {result.description}
         </p>
 
-        {/* Price Box */}
+        {/* Price Box with Stock Status */}
         <div className="bg-gradient-to-r from-gray-800 to-gray-800/50 rounded-xl p-4 border border-white/5 flex items-center justify-between shadow-lg">
-          <div>
+          <div className="flex-1">
             <p className="text-gray-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1">
               <Tag className="w-3 h-3 text-cyan-400" /> Best Price Found
             </p>
-            <div className="text-3xl font-mono text-white font-bold tracking-tight">
-              {result.priceMin > 0 ? displayPrice : 'Out of Stock'}
+            <div className="text-3xl font-mono text-white font-bold tracking-tight mb-2">
+              {result.priceAvailable && result.priceMin > 0 ? displayPrice : 'Price Unavailable'}
+            </div>
+            {/* Stock Status Badge */}
+            <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold tracking-wide ${
+              result.inStock ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${result.inStock ? 'bg-green-400' : 'bg-red-400'}`} />
+              {result.inStock ? '✅ IN STOCK' : '❌ OUT OF STOCK'}
             </div>
           </div>
           <div className="bg-cyan-500/10 p-2.5 rounded-full">
@@ -84,22 +91,39 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
         </div>
 
         {/* Found Stores List (New Feature) */}
+        {result.sourceName && (
+          <div className="bg-white/5 rounded-lg p-3 border border-white/10">
+            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-2">🏪 Available at:</p>
+            <a 
+              href={result.shopUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center justify-between p-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors group"
+            >
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4 text-gray-400 group-hover:text-cyan-400 transition-colors" />
+                <span className="text-sm text-gray-300 font-medium">{result.sourceName}</span>
+              </div>
+              <ExternalLink className="w-4 h-4 text-cyan-400 opacity-50 group-hover:opacity-100" />
+            </a>
+          </div>
+        )}
         {result.sources && result.sources.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Available at:</p>
+            <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Other sellers:</p>
             {result.sources.map((source, idx) => (
               <a 
                 key={idx}
-                href={source.web.uri}
+                href={source.web?.uri}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors group"
               >
                 <div className="flex items-center gap-3">
                   <ShoppingCart className="w-4 h-4 text-gray-400 group-hover:text-cyan-400 transition-colors" />
-                  <span className="text-sm text-gray-300 truncate max-w-[180px]">{source.web.title}</span>
+                  <span className="text-sm text-gray-300 truncate max-w-[180px]">{source.web?.title}</span>
                 </div>
-                <span className="text-sm font-mono font-bold text-cyan-400">{source.web.price || 'View'}</span>
+                <span className="text-sm font-mono font-bold text-cyan-400">{source.web?.price || 'View'}</span>
               </a>
             ))}
           </div>
