@@ -60,19 +60,26 @@ async function uploadToImgBB(base64Image: string): Promise<string> {
  * 2. Removing ALL noise: platforms, prices, keywords, separators
  * 3. Extracting just the brand + model (first few meaningful words)
  * 
- * Example: "Boat Nirvana ion Beast TWS under 1700/-- YouTube" → "Boat Nirvana ion Beast TWS"
+ * Example: "Boat Nirvana ion Beast TWS under 1700/-- YouTube" → "Boat Nirvana ion"
+ * Example: "boAt Nirvana ion :: Behance" → "boAt Nirvana ion"
  */
 function cleanProductName(rawName: string): string {
   if (!rawName) return "";
 
   let text = rawName.trim();
 
+  // PASS 0: Remove everything after double colons "::" (variant separator)
+  text = text.split("::")[0].trim();
+
   // PASS 1: Remove everything after these keywords/patterns (aggressive)
   const cutOffPatterns = [
     /\s*[-–]\s*[a-z].*$/i,  // " - anything" (treat dash as separator)
+    /\s*\|\s*.*$/i,         // " | anything" (pipe separator)
+    /\s*[()]\s*.*$/i,       // " ( anything"
     /\s+youtube\b.*$/i,
     /\s+amazon.*$/i,
     /\s+flipkart.*$/i,
+    /\s+behance.*$/i,
     /\s+price\b.*$/i,
     /\s+review\b.*$/i,
     /\s+unboxing\b.*$/i,
@@ -90,25 +97,25 @@ function cleanProductName(rawName: string): string {
   }
 
   // PASS 2: Extract only brand + meaningful words (stop at noise)
-  // Split by whitespace and keep only the first 4 meaningful words
+  // Keep only the first 3-4 meaningful words (brand + 2-3 model words)
   const words = text.trim().split(/\s+/);
   const meaningfulWords = [];
   
-  for (let i = 0; i < words.length && meaningfulWords.length < 5; i++) {
+  for (let i = 0; i < words.length && meaningfulWords.length < 4; i++) {
     const word = words[i];
     
     // Skip pure numbers, symbols, price indicators
     if (/^\d+$/.test(word)) continue;  // Skip pure numbers
     if (/^[₹$]/.test(word)) continue;  // Skip currency
-    if (/^(under|below|from|at|price|review|unboxing|youtube)$/i.test(word)) break; // Stop here
+    if (/^(under|below|from|at|price|review|unboxing|youtube|behance|edition|variant|model|v\d+)$/i.test(word)) break; // Stop here
     
     meaningfulWords.push(word);
   }
 
   const cleaned = meaningfulWords.join(" ").trim();
 
-  // If we got something reasonable, return it
-  if (cleaned.length >= 5) {
+  // If we got something reasonable (at least brand + 1 word), return it
+  if (cleaned.length >= 5 && cleaned.split(" ").length >= 2) {
     return cleaned;
   }
 
@@ -153,14 +160,117 @@ async function findBestPrice(productName: string): Promise<any[]> {
   searchUrl.searchParams.append("gl", "in"); // India
   searchUrl.searchParams.append("hl", "en");
   searchUrl.searchParams.append("currency", "INR");
-  searchUrl.searchParams.append("num", "15");
+  searchUrl.searchParams.append("num", "20"); // Get more results for better filtering
 
   const response = await fetch(searchUrl.toString());
   const data = await response.json();
 
   if (data.error) throw new Error(`Shopping Search Error: ${data.error}`);
 
-  return data.shopping_results || [];
+  const allResults = data.shopping_results || [];
+  
+  // Filter results: only keep Indian results with INR prices
+  const indianResults = allResults.filter((item: any) => isIndianResult(item));
+  
+  console.log(`🌍 Geographic filter: ${indianResults.length}/${allResults.length} results are from India`);
+
+  return indianResults.length > 0 ? indianResults : allResults; // Fallback to all if no Indian results
+}
+
+/**
+ * Detect currency type from price string
+ * Returns: 'INR', 'USD', 'EUR', or 'UNKNOWN'
+ */
+function detectCurrency(priceStr: string): string {
+  if (!priceStr) return "UNKNOWN";
+
+  const lower = priceStr.toLowerCase();
+
+  // INR indicators
+  if (/₹|rs\.?|inr|rupee/i.test(priceStr)) return "INR";
+
+  // USD indicators
+  if (/\$|usd|dollar/i.test(priceStr)) return "USD";
+
+  // EUR indicators
+  if (/€|eur|euro/i.test(priceStr)) return "EUR";
+
+  // GBP indicators
+  if (/£|gbp|pound/i.test(priceStr)) return "GBP";
+
+  return "UNKNOWN";
+}
+
+/**
+ * Check if a result is from India (by domain and currency)
+ * Returns true only if:
+ * - Link is from Indian domain (.in, amazon.in, flipkart.in, etc.)
+ * - OR price is in INR
+ * Returns false if:
+ * - Price is in foreign currency (€, $, £)
+ * - Link is from non-Indian domain
+ */
+function isIndianResult(item: any): boolean {
+  if (!item) return false;
+
+  const link = (item.link || "").toLowerCase();
+  const priceStr = (item.price || "").toString();
+  const title = (item.title || "").toLowerCase();
+
+  // Check for non-Indian currencies (strong negative indicator)
+  const currency = detectCurrency(priceStr);
+  if (currency === "USD" || currency === "EUR" || currency === "GBP") {
+    return false; // Reject foreign currencies
+  }
+
+  // Check for Indian domain patterns
+  const indianDomains = [
+    ".in/",           // .in domain
+    "amazon.in",      // Amazon India
+    "flipkart.com",   // Flipkart (primary India)
+    "flipkart.in",
+    "myntra.com",     // Myntra
+    "ajio.com",       // AJIO
+    "croma.com",      // Croma
+    "reliance.com",   // Reliance
+    "meesho.com",     // Meesho
+    "shopsy.in",      // Shopsy
+  ];
+
+  const hasIndianDomain = indianDomains.some((domain) => link.includes(domain));
+
+  // Check for non-Indian domains (strong negative)
+  const nonIndianDomains = [
+    ".sk/",          // Slovakia
+    ".cz/",          // Czech
+    ".eu",           // Europe
+    ".de",           // Germany
+    ".fr",           // France
+    ".uk",           // UK
+    ".us",           // USA
+    ".com.br",       // Brazil
+    "ebay.",         // eBay (usually international)
+  ];
+
+  const hasNonIndianDomain = nonIndianDomains.some((domain) => link.includes(domain));
+
+  // If has non-Indian domain, reject it
+  if (hasNonIndianDomain) {
+    return false;
+  }
+
+  // Prefer Indian domains, but accept if has INR price
+  if (hasIndianDomain) {
+    return true;
+  }
+
+  // Accept if explicitly has INR in price
+  if (currency === "INR") {
+    return true;
+  }
+
+  // If no explicit indicator, reject to be safe
+  return false;
 }
 
 /**
@@ -406,9 +516,9 @@ function isProductInStock(item: any): boolean {
 }
 
 /**
- * Score a result based on: PRICE (most important), title match, stock, and trusted shop
+ * Score a result based on: PRICE (most important), title match, location (India), and trusted shop
  * Higher score = better result
- * PRIORITY: Price > Title Match > Trusted Shop > Stock Status
+ * PRIORITY: Price > Location (India) > Title Match > Trusted Shop > Stock Status
  */
 function scoreResult(
   item: any,
@@ -416,6 +526,13 @@ function scoreResult(
   isTrustedShop: boolean
 ): number {
   let score = 0;
+
+  // Geographic location: +80 points bonus for India-based results (CRITICAL!)
+  if (isIndianResult(item)) {
+    score += 80;
+  } else {
+    score -= 100; // HEAVY penalty for non-Indian results
+  }
 
   // Price availability: +100 points max (HIGHEST PRIORITY!)
   const priceData = extractPriceDeep(item);
@@ -546,7 +663,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       // Use matched results if we have them, otherwise use all
       const resultsToScore = matchedResults.length > 0 ? matchedResults : shoppingResults;
 
-      // Step 2: Score all results (PRIORITIZES PRICE OVER STOCK)
+      // Step 2: Score all results (PRIORITIZES: India location > Price > Title > Shop)
       const scoredResults = resultsToScore
         .map((item: any) => {
           const isTrusted = TRUSTED_SHOPS.some((shop) =>
@@ -554,6 +671,9 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
             item.link?.toLowerCase().includes(shop)
           );
           const priceData = extractPriceDeep(item);
+          const isIndian = isIndianResult(item);
+          const currency = detectCurrency(item.price || "");
+          
           return {
             item,
             score: scoreResult(item, identifiedName, isTrusted),
@@ -561,6 +681,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
             hasPrice: priceData.min > 0,
             price: priceData.min,
             trusted: isTrusted,
+            isIndian,
+            currency,
           };
         })
         .sort((a, b) => b.score - a.score); // Sort by best score
@@ -569,18 +691,27 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       const resultsWithPrice = scoredResults.filter((r) => r.hasPrice);
       const resultsWithoutPrice = scoredResults.filter((r) => !r.hasPrice);
 
-      console.log(`📊 Results: ${resultsWithPrice.length} with prices, ${resultsWithoutPrice.length} without prices`);
+      // Step 3b: Further separate Indian results with prices
+      const indianWithPrice = resultsWithPrice.filter((r) => r.isIndian);
+      const nonIndianWithPrice = resultsWithPrice.filter((r) => !r.isIndian);
+
+      console.log(`📊 Results breakdown:`);
+      console.log(`   🇮🇳 Indian results with INR price: ${indianWithPrice.length}`);
+      console.log(`   🌍 Non-Indian results with other currency: ${nonIndianWithPrice.length}`);
+      console.log(`   ❌ No price: ${resultsWithoutPrice.length}`);
+      
       console.log("📊 Top 3 results by score:");
       scoredResults.slice(0, 3).forEach((r, idx) => {
+        const location = r.isIndian ? "🇮🇳 India" : "🌍 Other";
         console.log(
-          `  ${idx + 1}. Score: ${r.score.toFixed(1)} | Stock: ${r.inStock ? "✅" : "❌"} | Price: ${
+          `  ${idx + 1}. Score: ${r.score.toFixed(1)} | ${location} | Currency: ${r.currency} | Price: ${
             r.hasPrice ? `✅ ₹${r.price}` : "❌"
-          } | Trusted: ${r.trusted ? "✅" : "❌"} | ${r.item.title?.substring(0, 50)}`
+          } | ${r.item.title?.substring(0, 40)}`
         );
       });
 
-      // PRIORITY: Use items with prices (ignore stock status for selection)
-      const bestDeal = resultsWithPrice[0]?.item || scoredResults[0]?.item;
+      // PRIORITY: Always prefer Indian results with prices over non-Indian ones
+      const bestDeal = indianWithPrice[0]?.item || resultsWithPrice[0]?.item || scoredResults[0]?.item;
 
       if (!bestDeal) {
         throw new Error("No valid products found after scoring.");
@@ -597,18 +728,21 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       console.log(`📍 Product link: ${shopUrl}`);
       console.log(`✅ In Stock: ${isProductInStock(bestDeal)}`);
 
-      // Step 5: Build sources list - PRIORITIZE ITEMS WITH PRICES
-      const itemsWithValidPrices = scoredResults
-        .filter((r) => r.hasPrice)
+      // Step 5: Build sources list - PRIORITIZE INDIAN RESULTS WITH PRICES
+      // First priority: Indian results with prices
+      const prioritySources = indianWithPrice.map((r) => r.item).slice(0, 5);
+      
+      // Second priority: All results with prices (including non-Indian as fallback)
+      const fallbackSources = resultsWithPrice
+        .filter((r) => !prioritySources.some((p) => p === r.item))
         .map((r) => r.item)
-        .slice(0, 8); // Show more items with prices
+        .slice(0, 3);
 
-      // Fallback: if somehow no prices, show top scored items
-      const sourcesToShow = itemsWithValidPrices.length > 0 
-        ? itemsWithValidPrices 
-        : scoredResults.slice(0, 5).map((r) => r.item);
+      // Combine: prioritize Indian, then add other results
+      const sourcesToShow = [...prioritySources, ...fallbackSources];
 
-      console.log(`ℹ️ Showing ${sourcesToShow.length} store options (prioritized by price)`);
+      console.log(`ℹ️ Showing ${sourcesToShow.length} store options (${prioritySources.length} from India, ${fallbackSources.length} other)`);
+      
       finalSources = sourcesToShow.map((item: any) => {
         let priceStr = item.price || "";
         if (!priceStr && item.extracted_price) {
