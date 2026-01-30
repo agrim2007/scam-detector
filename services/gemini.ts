@@ -29,25 +29,23 @@ const TRUSTED_STORES = [
   'croma.com',
   'reliance.com',
   'tatacliq.com',
-  'ajio.com',
-  'meesho.com',
   'boat-lifestyle.com',
   'samsung.com',
-  'apple.com',
-  'oneplus.com',
-  'realme.com'
+  'apple.com'
 ];
 
-// Stores to REJECT (non-Indian/untrusted)
+// Stores to REJECT (non-Indian/untrusted/international)
 const BLOCKED_STORES = [
   'alibaba',
   'aliexpress',
-  'ebay',
   'ubuy',
+  'indiamart',
+  'ebay',
   'dhgate',
   'wish',
   'gearbest',
-  'banggood'
+  'banggood',
+  'aliexpress'
 ];
 
 /**
@@ -99,27 +97,40 @@ async function identifyProductWithLens(publicImageUrl: string): Promise<string> 
 }
 
 /**
- * Clean product name: remove platforms, prices, variants
+ * Clean product name: remove platforms, prices, variants, and critical keywords
  * "Boat Nirvana ion :: Behance" → "Boat Nirvana ion"
  * "Boat Nirvana ion Beast TWS under 1700" → "Boat Nirvana ion"
+ * 
+ * CRITICAL SANITIZATION: Strip out:
+ * - "Review", "YouTube", "Problem", "Issue", "Unboxing"
+ * - Variant separators (::, |, -)
+ * - Platform names (Amazon, Flipkart, YouTube)
+ * - Price markers (₹, Rs., under, etc.)
  */
 function cleanProductName(rawName: string): string {
   if (!rawName) return "";
 
   let text = rawName.trim();
 
+  // CRITICAL: Remove these specific words/phrases (case-insensitive)
+  const criticalWords = [
+    /\b(Review|YouTube|YouTube Video|Problem|Issue|Unboxing|Teardown|Leaked|Rumor|Fake|Scam)\b/gi,
+  ];
+
+  for (const pattern of criticalWords) {
+    text = text.replace(pattern, "");
+  }
+
   // Remove everything after :: (variant separator)
   text = text.split("::")[0].trim();
 
-  // Remove everything after these keywords
+  // Remove everything after these keywords/patterns
   const stopPatterns = [
     /\s*[-–]\s*[a-z].*/i,
     /\s*\|.*/i,
-    /\s+youtube\b.*/i,
     /\s+amazon.*/i,
     /\s+flipkart.*/i,
     /\s+price\b.*/i,
-    /\s+review\b.*/i,
     /\s+under\b.*/i,
     /\s+₹.*/i,
     /\s+rs.*/i,
@@ -128,6 +139,9 @@ function cleanProductName(rawName: string): string {
   for (const pattern of stopPatterns) {
     text = text.replace(pattern, "");
   }
+
+  // Clean up multiple spaces
+  text = text.replace(/\s+/g, " ");
 
   // Keep only first 2-4 meaningful words (brand + model)
   const words = text.trim().split(/\s+/);
@@ -159,37 +173,45 @@ async function searchGoogleShopping(productName: string): Promise<any[]> {
 
 /**
  * CRITICAL: Check if a store link is from a TRUSTED Indian store
- * Returns true ONLY if the link is from our trusted list
- * Returns false for Alibaba, Ubuy, random international sites, etc.
+ * Returns true ONLY if the link is from our strict whitelist
+ * Returns false for Alibaba, Ubuy, IndiaMart, random international sites, etc.
+ * 
+ * STRICT WHITELIST APPROACH:
+ * ✅ ACCEPT: amazon.in, flipkart.com, myntra.com, croma.com, etc.
+ * ❌ REJECT: alibaba.com, ubuy.co.in, indiamart.com, any unlisted site
  */
 function isTrustedStore(link: string): boolean {
   if (!link) return false;
 
   const lowerLink = link.toLowerCase();
 
-  // REJECT blocked stores immediately
+  // CRITICAL: REJECT blocked stores IMMEDIATELY
   for (const blocked of BLOCKED_STORES) {
     if (lowerLink.includes(blocked)) {
-      console.log(`❌ Blocked store detected: ${blocked}`);
+      console.log(`❌ BLOCKED: Store contains "${blocked}" - rejecting immediately`);
       return false;
     }
   }
 
-  // ACCEPT only trusted stores
+  // ACCEPT only if link contains a TRUSTED store domain
   for (const trusted of TRUSTED_STORES) {
     if (lowerLink.includes(trusted)) {
-      console.log(`✅ Trusted store found: ${trusted}`);
+      console.log(`✅ ACCEPTED: Trusted store found "${trusted}"`);
       return true;
     }
   }
 
-  console.log(`⚠️ Unknown store (not trusted): ${link.substring(0, 50)}`);
+  // DEFAULT: REJECT unknown stores (not in our trusted list)
+  console.log(`❌ REJECTED: Unknown store - not in trusted list: ${link.substring(0, 60)}...`);
   return false;
 }
 
 /**
  * Extract price from a shopping result item
- * Handles: "₹1,799", "Rs. 1,799", "1799", ranges like "1499-1999"
+ * Handles multiple formats:
+ * - "₹1,799" or "Rs. 1,799" or "Rs 1799"
+ * - "1,799" (plain number with comma)
+ * - Range: "₹1,499–₹1,999" or "1499 - 1999"
  */
 function extractPrice(item: any): { min: number; max: number } {
   const price = item.price || item.extracted_price || "";
@@ -198,21 +220,23 @@ function extractPrice(item: any): { min: number; max: number } {
 
   const priceStr = price.toString().trim();
 
-  // Try to match price range: "₹1499-₹1999" or "1499 - 1999"
+  // Pattern 1: Price range "₹1499–₹1999" or "1499 - 1999"
   const rangeMatch = priceStr.match(
-    /(?:₹|Rs\.?|INR)?\s*(\d+(?:,?\d+)*)\s*[-–]\s*(?:₹|Rs\.?|INR)?\s*(\d+(?:,?\d+)*)/i
+    /(?:₹|Rs\.?\s*)?(\d+(?:,\d{3})*(?:\.\d{2})?)\s*[-–—]\s*(?:₹|Rs\.?\s*)?(\d+(?:,\d{3})*(?:\.\d{2})?)/
   );
 
   if (rangeMatch) {
     const min = parseInt(rangeMatch[1].replace(/,/g, ""), 10);
     const max = parseInt(rangeMatch[2].replace(/,/g, ""), 10);
-    if (!isNaN(min) && !isNaN(max)) {
+    if (!isNaN(min) && !isNaN(max) && min > 0 && max > 0) {
       return { min, max };
     }
   }
 
-  // Try single price: "₹1,799" or "Rs. 1,799"
-  const singleMatch = priceStr.match(/(?:₹|Rs\.?|INR)?\s*(\d+(?:,?\d+)*(?:\.\d{2})?)/);
+  // Pattern 2: Single price "₹1,799" or "Rs. 1,799" or "1799"
+  const singleMatch = priceStr.match(
+    /(?:₹|Rs\.?\s*)?(\d+(?:,\d{3})*(?:\.\d{2})?)\b/
+  );
   
   if (singleMatch) {
     const price = parseFloat(singleMatch[1].replace(/,/g, ""));
@@ -225,73 +249,119 @@ function extractPrice(item: any): { min: number; max: number } {
 }
 
 /**
- * MAIN FUNCTION: Scan product and find lowest price from TRUSTED stores only
+ * MAIN FUNCTION: Identify -> Sanitize -> Strict Search -> Extract Price
+ * 
+ * Step 1: Visual ID (Google Lens)
+ *   - Upload image to ImgBB
+ *   - Use Google Lens to identify product name
+ *   - CRITICAL SANITIZATION: Strip "Review", "YouTube", "Problem", "Issue", "Unboxing"
+ * 
+ * Step 2: Trusted Shopping Search (Google Shopping)
+ *   - Search with `engine=google_shopping`, `gl=in`, `hl=en`, `currency=INR`
+ *   - STRICT WHITELIST FILTERING: Only accept amazon.in, flipkart.com, etc.
+ *   - BLOCK immediately: Alibaba, Ubuy, IndiaMart
+ * 
+ * Step 3: Find Trusted Store Result
+ *   - Iterate through results
+ *   - Skip any non-whitelisted stores
+ *   - Select first result from trusted store
+ * 
+ * Step 4: Price Extraction
+ *   - Extract price from trusted store result
+ *   - Handle ₹, Rs., ranges, and various formats
+ * 
+ * Returns: ProductResult with name, priceMin, priceMax, shopUrl, currency, sourceName
  */
 export async function identifyProduct(imageSrc: string): Promise<ProductResult> {
   try {
     if (!IMGBB_API_KEY || !SEARCHAPI_KEY) {
-      throw new Error("Missing API Keys");
+      throw new Error("Missing API Keys (VITE_IMGBB_API_KEY or VITE_SEARCHAPI_KEY)");
     }
 
-    console.log("📸 Step 0: Uploading image to ImgBB...");
+    // STEP 1: Visual ID with Google Lens
+    console.log("📸 STEP 1: Visual ID - Uploading image to ImgBB...");
     const publicImageUrl = await uploadToImgBB(imageSrc);
+    console.log("   ✅ Image uploaded:", publicImageUrl.substring(0, 50) + "...");
 
-    console.log("🔍 Step 1: Identifying product with Google Lens...");
+    console.log("🔍 STEP 1B: Identifying product name with Google Lens...");
     const productName = await identifyProductWithLens(publicImageUrl);
+    console.log(`   ✅ Identified product: "${productName}"`);
 
-    console.log("🛍️ Step 2: Searching Google Shopping (India)...");
+    // STEP 2: Trusted Shopping Search
+    console.log("🛍️ STEP 2: Trusted Shopping Search (Google Shopping - India only)...");
     const allResults = await searchGoogleShopping(productName);
-    console.log(`   Found ${allResults.length} total results`);
+    console.log(`   📊 Found ${allResults.length} total results from Google Shopping`);
 
-    console.log("🔐 Step 3: STRICT filtering - only TRUSTED stores");
-    // CRITICAL: Find the FIRST result from a trusted store
-    // Skip all Alibaba, Ubuy, and untrusted sites
+    // STEP 3: STRICT Whitelist Filtering
+    console.log("🔐 STEP 3: STRICT Whitelist Filtering");
+    console.log("   Looking for ONLY: Amazon, Flipkart, Myntra, Croma, Reliance, Tata CLiQ, Boat, Samsung, Apple");
+    console.log("   BLOCKING: Alibaba, Ubuy, IndiaMart, and any non-whitelisted stores");
+    
     let bestDeal = null;
     let sourceName = "";
     let trustedCount = 0;
+    let blockedCount = 0;
 
     for (const item of allResults) {
       const link = item.link || "";
       const source = item.source || "Unknown";
 
-      // Check if this is a trusted store
+      // Check if this is a TRUSTED store
       if (isTrustedStore(link)) {
         if (!bestDeal) {
           bestDeal = item;
           sourceName = source;
-          console.log(`   ✅ Selected: ${source}`);
+          console.log(`   ✅ SELECTED: ${source}`);
         }
         trustedCount++;
+      } else {
+        // Check if it was blocked
+        if (BLOCKED_STORES.some(store => link.toLowerCase().includes(store))) {
+          blockedCount++;
+        }
       }
     }
 
-    console.log(`   📊 Found ${trustedCount} results from trusted stores`);
+    console.log(`   📈 Summary: ${trustedCount} from trusted stores, ${blockedCount} blocked`);
 
     if (!bestDeal) {
-      throw new Error("No results from TRUSTED stores (Amazon, Flipkart, etc.) found. Try a different product.");
+      throw new Error(
+        `❌ FAILED: No results from trusted stores (Amazon.in, Flipkart, Myntra, Croma, Reliance, Tata CLiQ, Boat, Samsung, Apple). ` +
+        `Try a different product or more common brand.`
+      );
     }
 
-    console.log("💰 Step 4: Extracting price...");
+    // STEP 4: Extract Price
+    console.log("💰 STEP 4: Extracting price from trusted store...");
     const priceData = extractPrice(bestDeal);
     const { min: priceMin, max: priceMax } = priceData;
 
     if (priceMin === 0) {
-      console.warn("⚠️ Warning: Could not extract valid price");
-    } else {
-      console.log(`   💵 Price: ₹${priceMin.toLocaleString('en-IN')}`);
+      console.warn("   ⚠️ Warning: Could not extract price from this result");
+      throw new Error("No price information available for this product from trusted store.");
     }
 
-    return {
+    console.log(`   ✅ Price extracted: ₹${priceMin.toLocaleString('en-IN')}`);
+
+    const result: ProductResult = {
       name: productName,
       priceMin,
       priceMax,
       shopUrl: bestDeal.link || "",
       currency: "₹",
       sourceName,
-      confidence: 95,
+      confidence: 90,
     };
+
+    console.log("✅ SUCCESS: Product identification complete");
+    console.log(`   Name: ${result.name}`);
+    console.log(`   Price: ₹${result.priceMin.toLocaleString('en-IN')}`);
+    console.log(`   Store: ${result.sourceName}`);
+    console.log(`   Link: ${result.shopUrl.substring(0, 60)}...`);
+
+    return result;
   } catch (error) {
-    console.error("❌ Error:", error);
+    console.error("❌ ERROR:", error);
     throw error;
   }
 }
