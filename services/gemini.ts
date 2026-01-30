@@ -1,111 +1,115 @@
-import Groq from "groq-sdk";
+// services/gemini.ts
+// Uses SearchApi.io (Google Lens) - INDIA PRICE FIX 🇮🇳
+// Fixes "$0" bug by handling "₹" symbols and commas correctly.
 
-// Initialize the Groq SDK
-const groq = new Groq({
-  apiKey: import.meta.env.VITE_GROQ_API_KEY as string,
-  dangerouslyAllowBrowser: true 
-});
+const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
+const SEARCHAPI_KEY = import.meta.env.VITE_SEARCHAPI_KEY;
 
-async function compressImage(base64Src: string): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = base64Src;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const MAX_WIDTH = 512; 
-      
-      let width = img.width;
-      let height = img.height;
+const TRUSTED_SHOPS = ['amazon', 'flipkart', 'myntra', 'croma', 'reliance', 'tatacliq', 'meesho', 'ajio', 'boat', 'samsung', 'apple', 'vijaysales'];
 
-      if (width > height) {
-        if (width > MAX_WIDTH) {
-          height *= MAX_WIDTH / width;
-          width = MAX_WIDTH;
-        }
-      } else {
-        if (height > MAX_WIDTH) {
-          width *= MAX_WIDTH / height;
-          height = MAX_WIDTH;
-        }
-      }
+async function uploadToImgBB(base64Image: string): Promise<string> {
+  const formData = new FormData();
+  const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
+  formData.append("image", cleanBase64);
 
-      canvas.width = width;
-      canvas.height = height;
-      
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.6));
-    };
-    img.onerror = () => {
-      resolve(base64Src);
-    }
+  const response = await fetch(`https://api.imgbb.com/1/upload?expiration=600&key=${IMGBB_API_KEY}`, {
+    method: "POST",
+    body: formData,
   });
+
+  const data = await response.json();
+  if (!data.success) throw new Error("Failed to upload image.");
+  return data.data.url; 
 }
 
 export async function identifyProduct(imageSrc: string) {
   try {
-    const optimizedImage = await compressImage(imageSrc);
+    if (!IMGBB_API_KEY || !SEARCHAPI_KEY) throw new Error("Missing API Keys.");
 
-    const jsonStructure = JSON.stringify({
-      name: "string (precise product name)",
-      description: "string (short description)",
-      priceMin: "number (min estimated price in USD)",
-      priceMax: "number (max estimated price in USD)",
-      shopUrl: "string (search URL)"
-    });
+    // 1. Upload
+    const publicImageUrl = await uploadToImgBB(imageSrc);
 
-    const chatCompletion = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: `Identify this product (precise name, model). Estimate its current market price range in USD. 
-                     Return ONLY a valid JSON object with the following structure, no markdown formatting:
-                     ${jsonStructure}`
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: optimizedImage,
-              },
-            },
-          ],
-        },
-      ],
-      // UPDATED: This is the new model supported by Groq for Vision
-      model: "meta-llama/llama-4-scout-17b-16e-instruct", 
-      
-      response_format: { type: "json_object" },
-      temperature: 0.1, 
-    });
+    // 2. Search
+    const searchUrl = new URL("https://www.searchapi.io/api/v1/search");
+    searchUrl.searchParams.append("engine", "google_lens");
+    searchUrl.searchParams.append("api_key", SEARCHAPI_KEY);
+    searchUrl.searchParams.append("url", publicImageUrl); 
+    searchUrl.searchParams.append("gl", "in"); // India
+    searchUrl.searchParams.append("hl", "en"); 
+    searchUrl.searchParams.append("q", "price"); // Force price in results
 
-    const content = chatCompletion.choices[0]?.message?.content;
-    
-    if (!content) throw new Error("No content received from Groq");
+    const response = await fetch(searchUrl.toString());
+    const data = await response.json();
 
-    let data;
-    try {
-      data = JSON.parse(content);
-    } catch (e) {
-      console.error("Failed to parse JSON:", content);
-      throw new Error("Failed to interpret AI response");
+    if (data.error) throw new Error(data.error);
+
+    // 3. DEBUG: Check what we actually got
+    console.log("API RESULTS:", data.visual_matches);
+
+    // 4. FIND PRICE
+    const visualMatches = data.visual_matches || [];
+    let bestMatch: any = null;
+
+    // Filter A: Must have price
+    const matchesWithPrice = visualMatches.filter((m: any) => m.price);
+
+    // Filter B: Prefer Trusted Store
+    const trustedMatch = matchesWithPrice.find((m: any) => 
+        TRUSTED_SHOPS.some(shop => m.source?.toLowerCase().includes(shop))
+    );
+
+    // Select the winner (Trusted -> Any Price -> Top Result)
+    bestMatch = trustedMatch || matchesWithPrice[0] || visualMatches[0];
+
+    // 5. PARSE DATA
+    let productName = "Unidentified Item";
+    let priceMin = 0;
+    let shopUrl = "";
+    let sourceName = "Web";
+
+    if (bestMatch) {
+        productName = bestMatch.title;
+        shopUrl = bestMatch.link;
+        sourceName = bestMatch.source;
+
+        if (bestMatch.price) {
+            // Get raw string (e.g. "₹1,299.00" or "Rs. 450")
+            const rawString = bestMatch.price.value || bestMatch.price.raw || bestMatch.price.extracted_value;
+            console.log("Raw Price Found:", rawString); // Debug log
+
+            if (rawString) {
+                // CLEANUP: 
+                // 1. Remove commas (1,299 -> 1299)
+                // 2. Remove non-digits/dots
+                const cleanString = rawString.toString().replace(/,/g, '').replace(/[^0-9.]/g, '');
+                priceMin = parseFloat(cleanString);
+            }
+        }
     }
 
+    // Safety: If parsing failed (NaN), set to 0
+    if (isNaN(priceMin)) priceMin = 0;
+
     return {
-      name: data.name || "Unknown Product",
-      description: data.description || "Analysis complete.",
-      priceMin: data.priceMin || 0,
-      priceMax: data.priceMax || 0,
-      confidence: 90, 
-      imageUrl: imageSrc, 
-      shopUrl: data.shopUrl || `https://www.google.com/search?q=${encodeURIComponent(data.name || 'product')}`,
-      sources: [] 
+      name: productName,
+      description: `Found on ${sourceName}`,
+      priceMin: priceMin,
+      priceMax: priceMin,
+      currency: "₹", // Force Frontend to show Rupee
+      confidence: bestMatch ? 90 : 0,
+      imageUrl: imageSrc,
+      shopUrl: shopUrl || publicImageUrl,
+      sources: matchesWithPrice.slice(0, 3).map((match: any) => ({
+        web: {
+          uri: match.link,
+          title: match.title,
+          price: match.price?.raw || `₹${match.price?.value}`
+        }
+      }))
     };
 
   } catch (error) {
-    console.error("Groq API Error:", error);
+    console.error("Analysis Error:", error);
     throw error;
   }
 }
