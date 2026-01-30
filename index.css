@@ -12,7 +12,18 @@ html, body, #root {
   font-family: sans-serif;
   overflow: hidden;
 }
-/* DEBUG: If the screen is NOT red, your CSS is not connected */
-body {
-  background-color: red !important;
+
+/* Hide scrollbar but keep scrolling functionality */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;      /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* Smooth scrolling */
+.scrollbar-hide {
+  scroll-behavior: smooth;
 }

@@ -33,10 +33,10 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
     : `${currencySymbol} ${result.priceMin.toLocaleString('en-IN')} - ${currencySymbol} ${result.priceMax.toLocaleString('en-IN')}`;
 
   return (
-    <div className="w-full max-w-md bg-gray-900/90 backdrop-blur-xl rounded-3xl overflow-hidden border border-white/10 shadow-2xl animate-fade-in-up transition-all duration-300">
+    <div className="w-full max-w-md bg-gray-900/90 backdrop-blur-xl rounded-3xl overflow-hidden border border-white/10 shadow-2xl animate-fade-in-up transition-all duration-300 flex flex-col max-h-[90vh]">
       
       {/* Header Image Preview */}
-      <div className="relative h-40 w-full bg-black/50">
+      <div className="relative h-40 w-full bg-black/50 flex-shrink-0">
         <img 
           src={capturedImage || result.imageUrl} 
           alt="Product" 
@@ -58,18 +58,18 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
         </div>
       </div>
 
-      {/* Content Body */}
-      <div className="p-6 relative">
-        <h2 className="text-2xl font-bold text-white mb-2 leading-tight">
+      {/* Scrollable Content Body */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-hide">
+        <h2 className="text-2xl font-bold text-white leading-tight">
           {result.name}
         </h2>
 
-        <p className="text-gray-400 text-sm mb-6 leading-relaxed border-l-2 border-cyan-500/50 pl-3">
+        <p className="text-gray-400 text-sm leading-relaxed border-l-2 border-cyan-500/50 pl-3">
           {result.description}
         </p>
 
         {/* Price Box */}
-        <div className="bg-gradient-to-r from-gray-800 to-gray-800/50 rounded-xl p-4 mb-6 border border-white/5 flex items-center justify-between shadow-lg">
+        <div className="bg-gradient-to-r from-gray-800 to-gray-800/50 rounded-xl p-4 border border-white/5 flex items-center justify-between shadow-lg">
           <div>
             <p className="text-gray-400 text-xs uppercase tracking-wider mb-1 flex items-center gap-1">
               <Tag className="w-3 h-3 text-cyan-400" /> Best Price Found
@@ -85,7 +85,7 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
 
         {/* Found Stores List (New Feature) */}
         {result.sources && result.sources.length > 0 && (
-          <div className="mb-6 space-y-2">
+          <div className="space-y-2">
             <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider">Available at:</p>
             {result.sources.map((source, idx) => (
               <a 
@@ -104,27 +104,27 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, loading, onReset
             ))}
           </div>
         )}
+      </div>
 
-        {/* Actions */}
-        <div className="grid grid-cols-2 gap-3">
-          <button 
-            onClick={onReset} 
-            className="py-3.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5"
-          >
-            <Search className="w-4 h-4" />
-            Scan Again
-          </button>
-          
-          <a 
-            href={result.shopUrl} 
-            target="_blank" 
-            rel="noreferrer"
-            className="py-3.5 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-center transition-colors flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20"
-          >
-            Buy Now
-            <ExternalLink className="w-4 h-4" />
-          </a>
-        </div>
+      {/* Fixed Action Buttons at Bottom */}
+      <div className="grid grid-cols-2 gap-3 p-6 border-t border-white/5 flex-shrink-0 bg-gray-900/95 backdrop-blur">
+        <button 
+          onClick={onReset} 
+          className="py-3.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-white font-medium transition-colors flex items-center justify-center gap-2 border border-white/5"
+        >
+          <Search className="w-4 h-4" />
+          Scan Again
+        </button>
+        
+        <a 
+          href={result.shopUrl} 
+          target="_blank" 
+          rel="noreferrer"
+          className="py-3.5 px-4 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-bold text-center transition-colors flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20"
+        >
+          Buy Now
+          <ExternalLink className="w-4 h-4" />
+        </a>
       </div>
     </div>
   );
