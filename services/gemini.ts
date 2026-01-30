@@ -54,6 +54,53 @@ async function uploadToImgBB(base64Image: string): Promise<string> {
   return data.data.url;
 }
 
+/**
+ * Clean product name by removing:
+ * - Platform names (YouTube, Amazon, etc.)
+ * - Price ranges (under 1700, ₹1999, etc.)
+ * - Video/article keywords (review, unboxing, price, etc.)
+ * - Extra descriptive text
+ * 
+ * Example: "Boat Nirvana ion Beast TWS under 1700/-- YouTube" → "Boat Nirvana ion Beast TWS"
+ */
+function cleanProductName(rawName: string): string {
+  if (!rawName) return "";
+
+  let cleaned = rawName.trim();
+
+  // List of keywords to remove (case-insensitive)
+  const removePatterns = [
+    // Platform names
+    /\s*[-–]\s*(youtube|amazon|flipkart|myntra|ebay|reddit|facebook|twitter|instagram|blog)\b.*$/i,
+    /\b(youtube|amazon|flipkart|myntra|ebay|reddit|facebook|twitter|instagram|blog|online|shopping)\s*$/i,
+    
+    // Video/article descriptors
+    /\s+(review|reviews|unboxing|unboxed|price|pricing|cost|buy|purchase|comparison|vs|versus|best|top|new|latest|2024|2025|2026)\s*$/i,
+    /\s+(video|article|blog post|vlog|channel|stream)\s*$/i,
+    
+    // Price patterns
+    /\s+(under|below|starts?|from|at|₹|rs|inr|usd|$|dollars?)\s*[\d,.-]+\s*\/?-*\s*.*$/i,
+    /\s*[₹rs.]?\s*\d+\s*[-–/]*\s*\d*\s*\/?-*\s*$/i,
+    
+    // Doubling separators
+    /\s*[-–/]+\s*[-–/]+\s*$/,
+    /\s*\|-*\s*$/,
+  ];
+
+  // Apply each pattern to remove trailing noise
+  for (const pattern of removePatterns) {
+    cleaned = cleaned.replace(pattern, "");
+  }
+
+  // Remove excessive whitespace and special characters at the end
+  cleaned = cleaned.replace(/\s+[-–/]*\s*$/, "").trim();
+
+  // If we have nothing left, return original
+  if (cleaned.length < 3) return rawName;
+
+  return cleaned;
+}
+
 // Step 1: Visual identification using Google Lens
 async function identifyProductVisually(publicImageUrl: string): Promise<string> {
   const lensUrl = new URL("https://www.searchapi.io/api/v1/search");
@@ -73,7 +120,13 @@ async function identifyProductVisually(publicImageUrl: string): Promise<string> 
     throw new Error("Could not visually identify product from image.");
   }
 
-  return visualMatches[0].title || "Unknown Product";
+  const rawTitle = visualMatches[0].title || "Unknown Product";
+  const cleanedName = cleanProductName(rawTitle);
+  
+  console.log(`Raw title: "${rawTitle}"`);
+  console.log(`Cleaned name: "${cleanedName}"`);
+
+  return cleanedName;
 }
 
 // Step 2: Search for prices on Google Shopping (India market)
@@ -333,6 +386,44 @@ function isProductInStock(item: any): boolean {
 }
 
 /**
+ * Score a result based on: stock status, title match, price availability, and trusted shop
+ * Higher score = better result
+ */
+function scoreResult(
+  item: any,
+  identifiedName: string,
+  isTrustedShop: boolean
+): number {
+  let score = 0;
+
+  // Stock status: +50 points if in stock
+  if (isProductInStock(item)) {
+    score += 50;
+  } else {
+    score -= 30; // Heavy penalty for out of stock
+  }
+
+  // Title match: +30 points max
+  const titleScore = calculateTitleMatchScore(identifiedName, item.title || "");
+  score += (titleScore / 100) * 30;
+
+  // Price availability: +15 points if has valid price
+  const priceData = extractPriceDeep(item);
+  if (priceData.min > 0) {
+    score += 15;
+  } else {
+    score -= 20; // Penalty for no price
+  }
+
+  // Trusted shop: +10 points bonus
+  if (isTrustedShop) {
+    score += 10;
+  }
+
+  return score;
+}
+
+/**
  * Validate that a search result title matches the identified product name
  * Returns a match score (0-100): 100 = perfect match, 0 = no match
  * This prevents picking links for similar but different products
@@ -410,51 +501,52 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     let finalSources: Array<{ web: { uri: string; title: string; price: string } }> = [];
 
     if (shoppingResults.length > 0) {
-      // Step 1: Separate in-stock and out-of-stock items
-      const inStockResults = shoppingResults.filter((item: any) => isProductInStock(item));
-      const outOfStockResults = shoppingResults.filter(
-        (item: any) => !isProductInStock(item)
-      );
-
-      console.log(
-        `📦 Stock check: ${inStockResults.length} in-stock, ${outOfStockResults.length} out-of-stock`
-      );
-
-      // Prefer in-stock items, but use all items if nothing is in stock
-      const resultsToProcess = inStockResults.length > 0 ? inStockResults : shoppingResults;
-
-      // Step 2: Filter results by title match to the identified product
-      // This prevents picking the wrong product variant
-      const matchedResults = resultsToProcess
+      // Step 1: Filter for title-matching results (strict validation)
+      const matchedResults = shoppingResults
         .map((item: any) => ({
           item,
           matchScore: calculateTitleMatchScore(identifiedName, item.title || ""),
         }))
-        .filter((x) => x.matchScore > 0) // Only keep results that match
-        .sort((a, b) => b.matchScore - a.matchScore); // Sort by best match
+        .filter((x) => x.matchScore > 0)
+        .map((x) => x.item);
 
-      console.log(
-        `🔍 Title matching: ${matchedResults.length} results match the identified product`
-      );
+      console.log(`🔍 Title matching: ${matchedResults.length} results match the identified product`);
 
-      // If no strict title matches but we have in-stock items, use those
-      // Otherwise use all results
-      const validResults =
-        matchedResults.length > 0 
-          ? matchedResults.map((x) => x.item)
-          : inStockResults.length > 0
-          ? inStockResults
-          : shoppingResults;
+      // Use matched results if we have them, otherwise use all
+      const resultsToScore = matchedResults.length > 0 ? matchedResults : shoppingResults;
 
-      // Step 3: Prioritize trusted shops (Amazon, Flipkart, etc.) among valid results
-      const trustedDeal = validResults.find((item: any) =>
-        TRUSTED_SHOPS.some((shop) =>
-          item.source?.toLowerCase().includes(shop) ||
-          item.link?.toLowerCase().includes(shop)
-        )
-      );
+      // Step 2: Score all results based on stock, price, and shop
+      const scoredResults = resultsToScore
+        .map((item: any) => {
+          const isTrusted = TRUSTED_SHOPS.some((shop) =>
+            item.source?.toLowerCase().includes(shop) ||
+            item.link?.toLowerCase().includes(shop)
+          );
+          return {
+            item,
+            score: scoreResult(item, identifiedName, isTrusted),
+            inStock: isProductInStock(item),
+            hasPrice: extractPriceDeep(item).min > 0,
+            trusted: isTrusted,
+          };
+        })
+        .sort((a, b) => b.score - a.score); // Sort by best score
 
-      const bestDeal = trustedDeal || validResults[0];
+      // Step 3: Log detailed scoring info
+      console.log("📊 Top 3 results by score:");
+      scoredResults.slice(0, 3).forEach((r, idx) => {
+        console.log(
+          `  ${idx + 1}. Score: ${r.score.toFixed(1)} | Stock: ${r.inStock ? "✅" : "❌"} | Price: ${
+            r.hasPrice ? "✅" : "❌"
+          } | Trusted: ${r.trusted ? "✅" : "❌"} | ${r.item.title}`
+        );
+      });
+
+      const bestDeal = scoredResults[0]?.item;
+
+      if (!bestDeal) {
+        throw new Error("No valid products found after scoring.");
+      }
 
       // Step 4: Extract price using aggressive deep parser
       const priceData = extractPriceDeep(bestDeal);
@@ -467,25 +559,38 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       console.log(`📍 Product link: ${shopUrl}`);
       console.log(`✅ In Stock: ${isProductInStock(bestDeal)}`);
 
-      // Step 5: Build sources list (top 5 results from validated products)
-      finalSources = validResults.slice(0, 5).map((item: any) => {
-        // Try to get a readable price string
+      // Step 5: Build sources list - only include in-stock items with valid prices
+      const inStockWithPrice = scoredResults
+        .filter((r) => r.inStock && r.hasPrice)
+        .map((r) => r.item)
+        .slice(0, 5);
+
+      // Fallback: if no in-stock items with price, show top scored items anyway
+      const sourcesToShow = inStockWithPrice.length > 0 
+        ? inStockWithPrice 
+        : scoredResults.slice(0, 5).map((r) => r.item);
+
+      finalSources = sourcesToShow.map((item: any) => {
         let priceStr = item.price || "";
         if (!priceStr && item.extracted_price) {
           priceStr = `₹${item.extracted_price}`;
         }
         if (!priceStr) {
-          priceStr = "Check Price";
+          const deepPrice = extractPriceDeep(item);
+          if (deepPrice.min > 0) {
+            priceStr = `₹${deepPrice.min}`;
+            if (deepPrice.max > deepPrice.min) {
+              priceStr += `-₹${deepPrice.max}`;
+            }
+          } else {
+            priceStr = "Check Price";
+          }
         }
-
-        // Add stock status indicator
-        const stockStatus = isProductInStock(item) ? "✅ In Stock" : "❌ Out of Stock";
-        const titleWithStock = `${item.title || "Product"} (${stockStatus})`;
 
         return {
           web: {
             uri: item.link || "",
-            title: titleWithStock,
+            title: item.title || "Product",
             price: priceStr,
           },
         };
