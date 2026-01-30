@@ -1,10 +1,13 @@
 // services/gemini.ts
 // Uses SearchApi.io (2-Step Smart System) 🧠
-// Step 1: Google Lens -> Identifies the Product Name.
-// Step 2: Google Shopping -> Searches that name to find the REAL price & In-Stock Link.
+// FIX: Dynamic Price Parsing for Amazon links.
+// Removed "stale" fallback prices. Only shows REAL-TIME data.
 
 const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
 const SEARCHAPI_KEY = import.meta.env.VITE_SEARCHAPI_KEY;
+
+// Trusted stores
+const TRUSTED_SHOPS = ['amazon', 'flipkart', 'myntra', 'croma', 'reliance', 'tatacliq', 'meesho', 'ajio', 'boat', 'samsung', 'apple'];
 
 async function uploadToImgBB(base64Image: string): Promise<string> {
   const formData = new FormData();
@@ -21,31 +24,56 @@ async function uploadToImgBB(base64Image: string): Promise<string> {
   return data.data.url; 
 }
 
-// Helper: Step 2 - Search for the specific product on Google Shopping
+// Helper: Step 2 - Search for IN STOCK products
 async function findBestPrice(productName: string) {
-  // We search for "Buy [Product Name] India" on Google Shopping
   const searchUrl = new URL("https://www.searchapi.io/api/v1/search");
-  searchUrl.searchParams.append("engine", "google_shopping"); // Switch to Shopping Engine
+  searchUrl.searchParams.append("engine", "google_shopping");
   searchUrl.searchParams.append("api_key", SEARCHAPI_KEY);
   searchUrl.searchParams.append("q", productName); 
   searchUrl.searchParams.append("gl", "in"); // India
   searchUrl.searchParams.append("hl", "en"); 
-  searchUrl.searchParams.append("num", "5"); // Get top 5 results
+  searchUrl.searchParams.append("num", "10"); 
+  
+  // "is:1" = In Stock Only
+  searchUrl.searchParams.append("tbs", "mr:1,merchagg:g784994|m7388148,is:1"); 
 
   const response = await fetch(searchUrl.toString());
   const data = await response.json();
 
   if (data.shopping_results && data.shopping_results.length > 0) {
-    return data.shopping_results; // Return the clean shopping list
+    return data.shopping_results; 
   }
   return [];
+}
+
+// Helper: Deep Price Parser
+function extractPrice(item: any): { min: number, max: number } {
+    let price = 0;
+
+    // 1. Try 'extracted_price' (Best for numbers)
+    if (item.extracted_price) {
+        price = item.extracted_price;
+    } 
+    // 2. Try 'price' string cleaning
+    else if (item.price) {
+        const str = item.price.toString();
+        // Remove '₹', ',', 'Rs', spaces
+        const clean = str.replace(/[^\d.]/g, ''); 
+        const parsed = parseFloat(clean);
+        if (!isNaN(parsed)) price = parsed;
+    }
+
+    // Check for detection errors (sometimes API returns 0)
+    if (price <= 0) return { min: 0, max: 0 };
+
+    return { min: price, max: price };
 }
 
 export async function identifyProduct(imageSrc: string) {
   try {
     if (!IMGBB_API_KEY || !SEARCHAPI_KEY) throw new Error("Missing API Keys.");
 
-    // --- STEP 1: VISUAL IDENTIFICATION (Google Lens) ---
+    // --- STEP 1: VISUAL IDENTIFICATION ---
     const publicImageUrl = await uploadToImgBB(imageSrc);
 
     const lensUrl = new URL("https://www.searchapi.io/api/v1/search");
@@ -53,14 +81,13 @@ export async function identifyProduct(imageSrc: string) {
     lensUrl.searchParams.append("api_key", SEARCHAPI_KEY);
     lensUrl.searchParams.append("url", publicImageUrl); 
     lensUrl.searchParams.append("gl", "in"); 
-    lensUrl.searchParams.append("q", "."); // Dummy param
+    lensUrl.searchParams.append("q", "."); 
 
     const lensResponse = await fetch(lensUrl.toString());
     const lensData = await lensResponse.json();
 
     if (lensData.error) throw new Error(lensData.error);
 
-    // Get the Product Name from the best visual match
     const visualMatches = lensData.visual_matches || [];
     if (visualMatches.length === 0) {
         return {
@@ -71,64 +98,60 @@ export async function identifyProduct(imageSrc: string) {
         };
     }
 
-    // The top result usually has the correct NAME (e.g. "Boat Nirvana ION")
     const identifiedName = visualMatches[0].title;
-    const visualImage = visualMatches[0].thumbnail;
+    console.log("Identified:", identifiedName);
 
-    console.log("Identified Name:", identifiedName);
-
-    // --- STEP 2: REAL-TIME PRICE CHECK (Google Shopping) ---
-    // Now we take that name and strictly search for SHOPPING results
+    // --- STEP 2: REAL-TIME SHOPPING SCAN ---
     const shoppingResults = await findBestPrice(identifiedName);
 
-    // Default values (if shopping fails)
     let priceMin = 0;
+    let priceMax = 0;
     let shopUrl = "";
     let sourceName = "Google Lens";
     let finalSources = [];
 
     if (shoppingResults.length > 0) {
-        // We found real shopping results!
-        const bestDeal = shoppingResults[0]; // Top result is usually "Best Match"
-        
-        shopUrl = bestDeal.link;
-        sourceName = bestDeal.source; // e.g. "Amazon.in"
-        
-        // Parse Price (e.g. "₹1,799.00")
-        if (bestDeal.extracted_price) {
-            priceMin = bestDeal.extracted_price;
-        } else if (bestDeal.price) {
-             const cleanString = bestDeal.price.toString().replace(/,/g, '').replace(/[^0-9.]/g, '');
-             priceMin = parseFloat(cleanString);
-        }
+        // Prioritize Amazon/Flipkart
+        const trustedDeal = shoppingResults.find((item: any) => 
+            TRUSTED_SHOPS.some(shop => item.source?.toLowerCase().includes(shop))
+        );
+        const bestDeal = trustedDeal || shoppingResults[0];
 
-        // Create the list of sources for your UI
+        shopUrl = bestDeal.link;
+        sourceName = bestDeal.source;
+        
+        // Extract Price using deep parser
+        const prices = extractPrice(bestDeal);
+        priceMin = prices.min;
+        priceMax = prices.max;
+
+        // Map sources for UI
         finalSources = shoppingResults.slice(0, 5).map((item: any) => ({
             web: {
                 uri: item.link,
                 title: item.title,
-                price: item.price // "₹1,799"
+                price: item.price // Keep original string for display (e.g. "₹1,499")
             }
         }));
 
     } else {
-        // Fallback: If Google Shopping found nothing, use the Lens data
-        // (This happens for very rare items)
+        // Fallback: If no shopping results, use Visual Link (but NO fake price)
+        // We set price to 0 so the UI says "Check Price" instead of a lie.
         shopUrl = visualMatches[0].link;
+        sourceName = visualMatches[0].source;
+        
         finalSources = visualMatches.slice(0, 3).map((m: any) => ({
-             web: { uri: m.link, title: m.title, price: m.price?.raw }
+             web: { uri: m.link, title: m.title, price: "View Site" }
         }));
     }
 
-    if (isNaN(priceMin)) priceMin = 0;
-
     return {
       name: identifiedName,
-      description: `Identified as ${identifiedName}. Found best price on ${sourceName}.`,
+      description: `Identified as ${identifiedName}. Found on ${sourceName}.`,
       priceMin: priceMin,
-      priceMax: priceMin,
+      priceMax: priceMax,
       currency: "₹",
-      confidence: 95, // High confidence because we verified it with Search
+      confidence: 95,
       imageUrl: imageSrc,
       shopUrl: shopUrl,
       sources: finalSources
