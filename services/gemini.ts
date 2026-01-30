@@ -69,12 +69,17 @@ const BLOCKED_STORES = [
 const OUT_OF_STOCK_KEYWORDS = [
   'out of stock',
   'out-of-stock',
+  'out of stock',
   'unavailable',
   'discontinued',
   'no longer available',
   'not available',
   'sold out',
   'notify me',
+  'backorder',
+  'back order',
+  'preorder',
+  'coming soon',
 ];
 
 // ============================================================================
@@ -182,15 +187,20 @@ function sanitizeProductName(rawTitle: string): string {
   const criticalKeywords = [
     // Content/Video keywords
     'review', 'reviews', 'video', 'youtube', 'unboxing', 'teardown', 'unbox',
-    // Problem words
+    'channel', 'tech', 'unboxed', 'vs', 'comparison',
+    // Problem words & filler
     'problem', 'issue', 'error', 'fix', 'hack', 'solution', 'guide',
+    'hype', 'hyped', 'why', 'how', 'what', 'which', 'where', 'when',
+    'so', 'much', 'more', 'less', 'most', 'very',
     // Platform/vendor markers
     'amazon', 'flipkart', 'online', 'deal', 'offer', 'shop', 'store',
     // Rumors/Fakes
-    'leaked', 'rumor', 'rumoured', 'rumored', 'fake', 'scam', 'hoax',
+    'leaked', 'leak', 'rumor', 'rumoured', 'rumored', 'fake', 'scam', 'hoax',
     // Other irrelevant
-    'best', 'top', 'ultimate', 'ultimate', 'new', 'latest', 'upcoming',
+    'best', 'top', 'ultimate', 'new', 'latest', 'upcoming', 'original',
     'available', 'in', 'india', 'indian', 'for', 'the', 'a', 'an',
+    'specs', 'features', 'pricing',
+    'official', 'authentic', 'real', 'true', 'first', 'full', 'complete',
   ];
 
   // Build regex to remove these words (whole word only)
@@ -335,31 +345,36 @@ function isTrustedStore(link: string): boolean {
  * 1. Presence of price (if price exists, usually in stock)
  * 2. Explicit availability text in title/description
  * 3. Out-of-stock keywords in title
+ * 
+ * STRICT: If any out-of-stock indicator is found, return FALSE
  */
 function detectStockStatus(item: any): boolean {
-  // If we have a price, assume in stock
-  const price = item.price || item.extracted_price;
-  if (price && price > 0) {
-    return true;
-  }
-
-  // Check title for out-of-stock keywords
+  // Check title for out-of-stock keywords FIRST (most important)
   const title = (item.title || '').toLowerCase();
   for (const keyword of OUT_OF_STOCK_KEYWORDS) {
     if (title.includes(keyword.toLowerCase())) {
-      console.log(`    ⚠️ Out-of-stock detected in title`);
-      return false;
+      console.log(`    ⚠️ Out-of-stock detected in title: "${keyword}"`);
+      return false; // Explicitly out of stock
     }
   }
 
   // Check status/availability field if exists
   const status = (item.status || '').toLowerCase();
-  if (status.includes('out of stock') || status.includes('unavailable')) {
+  if (status.includes('out of stock') || status.includes('unavailable') || status.includes('discontinued')) {
+    console.log(`    ⚠️ Out-of-stock detected in status`);
     return false;
   }
 
-  // Default: If we reached here, likely in stock
-  return true;
+  // If price exists and no out-of-stock keywords, likely in stock
+  const price = item.price || item.extracted_price;
+  if (price && price > 0) {
+    console.log(`    ✅ Price found: assumed IN STOCK`);
+    return true;
+  }
+
+  // No price but also no out-of-stock keywords: uncertain, default to FALSE
+  console.log(`    ❓ No price and no explicit stock status`);
+  return false;
 }
 
 // ============================================================================
