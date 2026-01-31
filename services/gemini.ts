@@ -378,6 +378,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       sourceName: finalSource,
       confidence: Math.min(95, 50 + Math.floor(scoreValue / 2)),
       score: scoreValue,
+      priceAvailable: priceMin > 0,
+      inStock: priceMin > 0,
     };
 
     console.log("✅ RETURNING RESULT:");

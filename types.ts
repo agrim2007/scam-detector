@@ -11,6 +11,7 @@ export interface ProductResult {
   sourceName?: string;         // Store name (Amazon.in, Flipkart, etc.)
   inStock?: boolean;           // Is product in stock? (NEW)
   priceAvailable?: boolean;    // Was a price successfully extracted? (NEW)
+  score?: number;              // Ranking score from AI
   sources?: Array<{
     web?: { uri: string; title: string; price?: string };
   }>;
