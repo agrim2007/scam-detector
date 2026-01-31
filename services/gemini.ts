@@ -222,50 +222,27 @@ function sanitizeProductName(rawTitle: string): string {
 
 async function searchGoogleShopping(productName: string): Promise<any[]> {
   try {
-    const shoppingSites = [
-      'amazon.in',
-      'flipkart.com',
-      'croma.com',
-      'myntra.com',
-      'reliance.com',
-      'tatacliq.com'
-    ];
+    const searchUrl = new URL("https://www.searchapi.io/api/v1/search");
+    searchUrl.searchParams.append("engine", "google_shopping");
+    searchUrl.searchParams.append("api_key", SEARCHAPI_KEY);
+    searchUrl.searchParams.append("q", productName);
+    searchUrl.searchParams.append("gl", "in");
+    searchUrl.searchParams.append("hl", "en");
+    searchUrl.searchParams.append("currency", "INR");
+    searchUrl.searchParams.append("num", "40");
 
-    const allResults = [];
+    const response = await fetch(searchUrl.toString());
+    const data = await response.json();
 
-    for (const site of shoppingSites) {
-      try {
-        const searchUrl = new URL("https://www.searchapi.io/api/v1/search");
-        searchUrl.searchParams.append("engine", "google");
-        searchUrl.searchParams.append("api_key", SEARCHAPI_KEY);
-        searchUrl.searchParams.append("q", `${productName} site:${site}`);
-        searchUrl.searchParams.append("gl", "in");
-        searchUrl.searchParams.append("hl", "en");
-        searchUrl.searchParams.append("num", "5");
-
-        const response = await fetch(searchUrl.toString());
-        const data = await response.json();
-
-        if (data.organic_results) {
-          const siteResults = data.organic_results.map((result: any) => ({
-            title: result.title,
-            link: result.link,
-            source: site,
-            price: result.price,
-            snippet: result.snippet
-          }));
-          allResults.push(...siteResults);
-          console.log(`   Found ${siteResults.length} results from ${site}`);
-        }
-      } catch (error) {
-        console.warn(`   Failed to search ${site}:`, error);
-      }
+    if (data.error) {
+      throw new Error(`Google Shopping API error: ${data.error}`);
     }
 
-    console.log(`🛍️ Found ${allResults.length} shopping results across all sites`);
-    return allResults;
+    const results = data.shopping_results || [];
+    console.log(`🛍️ Found ${results.length} shopping results`);
+    return results;
   } catch (error) {
-    console.error("❌ Shopping search error:", error);
+    console.error("❌ Google Shopping search error:", error);
     throw error;
   }
 }
