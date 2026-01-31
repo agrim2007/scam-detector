@@ -19,7 +19,6 @@ console.log(`   VITE_IMGBB_API_KEY: ${IMGBB_API_KEY ? '✅ LOADED' : '❌ MISSIN
 console.log(`   VITE_SEARCHAPI_KEY: ${SEARCHAPI_KEY ? '✅ LOADED' : '❌ MISSING'}`);
 console.log(`   VITE_GROQ_API_KEY: ${GROQ_API_KEY ? '✅ LOADED' : '❌ MISSING'}`);
 
-
 const BLOCKED_STORES = [
   'alibaba',
   'aliexpress',
