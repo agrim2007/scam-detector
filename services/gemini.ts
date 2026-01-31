@@ -309,8 +309,12 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     const scoreValue = bestCandidate.score;
     const priceMin = bestCandidate.priceMin;
     const priceMax = bestCandidate.priceMax;
-    const shopUrl = itemData.link || itemData.url || '';
-    const storeName = itemData.source || getDomainFromUrl(shopUrl);
+    
+    // CRITICAL: Check all possible link fields in SearchAPI response
+    const finalLink = itemData.link || itemData.product_link || itemData.offer_link || itemData.url || '';
+    
+    // CRITICAL: Check source, then merchant.name, then extract from URL
+    const storeName = itemData.source || itemData.merchant?.name || getDomainFromUrl(finalLink);
 
     console.log("🏆 BEST CANDIDATE SELECTED!");
     console.log(`   Name: ${cleanProductName}`);
@@ -323,7 +327,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       name: cleanProductName,
       priceMin: priceMin,
       priceMax: priceMax,
-      shopUrl: shopUrl,
+      shopUrl: finalLink,
       currency: '₹',
       sourceName: storeName,
       confidence: Math.min(95, 50 + Math.floor(scoreValue / 2)),
