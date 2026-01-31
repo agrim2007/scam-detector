@@ -370,10 +370,15 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
 
     for (let i = 0; i < allResults.length; i++) {
       const item = allResults[i];
-      const link = item.link || item.url || item.product_link || item.shopping_link || '';
+      let link = item.link || item.url || item.product_link || item.shopping_link || '';
       const source = item.source || item.merchant || item.title || 'Unknown';
 
-      console.log(`  🔗 Result ${i + 1}: link="${link.substring(0, 40)}" source="${source.substring(0, 40)}"`);
+      console.log(`  🔗 Result ${i + 1}: raw_link="${link.substring(0, 40)}" source="${source.substring(0, 40)}"`);
+
+      if (link.includes('google.com/search')) {
+        console.log(`  ❌ GOOGLE SEARCH LINK - SKIPPING (no price info)`);
+        continue;
+      }
 
       if (!isTrustedStore(link)) {
         continue;
