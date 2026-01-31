@@ -321,7 +321,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     console.log(`   Price: ₹${priceMin}${priceMax > priceMin ? ` - ₹${priceMax}` : ''}`);
     console.log(`   Store: ${storeName}`);
     console.log(`   Score: ${scoreValue}`);
-    console.log(`   URL: ${shopUrl}\n`);
+    console.log(`   URL: ${finalLink}\n`);
 
     const result: ProductResult = {
       name: cleanProductName,
