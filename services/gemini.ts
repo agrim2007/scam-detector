@@ -20,18 +20,6 @@ console.log(`   VITE_SEARCHAPI_KEY: ${SEARCHAPI_KEY ? '✅ LOADED' : '❌ MISSIN
 console.log(`   VITE_GROQ_API_KEY: ${GROQ_API_KEY ? '✅ LOADED' : '❌ MISSING'}`);
 
 
-const TRUSTED_STORES = [
-  'amazon.in',
-  'flipkart.com',
-  'myntra.com',
-  'croma.com',
-  'reliance.com',
-  'tatacliq.com',
-  'boat-lifestyle.com',
-  'samsung.com',
-  'apple.com'
-];
-
 const BLOCKED_STORES = [
   'alibaba',
   'aliexpress',
