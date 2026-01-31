@@ -341,6 +341,14 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     const priceMin = bestCandidate.priceMin;
     const priceMax = bestCandidate.priceMax;
     
+    // DEBUG: Log the entire itemData object to understand its structure
+    console.log("🔍 DEBUG - Full itemData object:");
+    console.log(itemData);
+    console.log(`   product_link: ${itemData.product_link}`);
+    console.log(`   link: ${itemData.link}`);
+    console.log(`   offer_link: ${itemData.offer_link}`);
+    console.log(`   url: ${itemData.url}`);
+    
     // CRITICAL: Check all possible link fields in SearchAPI response
     const finalUrl = itemData.product_link || itemData.link || itemData.offer_link || itemData.url || "";
     
@@ -352,7 +360,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     console.log(`   Price: ₹${priceMin}${priceMax > priceMin ? ` - ₹${priceMax}` : ''}`);
     console.log(`   Store: ${finalSource}`);
     console.log(`   Score: ${scoreValue}`);
-    console.log(`   URL: ${finalUrl}\n`);
+    console.log(`   URL (finalUrl): "${finalUrl}"\n`);
 
     const result: ProductResult = {
       name: cleanProductName,
