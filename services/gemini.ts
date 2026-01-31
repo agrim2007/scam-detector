@@ -148,7 +148,7 @@ RESPONSE: Return only the clean product name, nothing else.`;
         "Authorization": `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "llama-2-70b-chat",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
         messages: [
           {
             role: "user",
