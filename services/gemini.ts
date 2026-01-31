@@ -350,7 +350,14 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     console.log(`   url: ${itemData.url}`);
     
     // CRITICAL: Check all possible link fields in SearchAPI response
-    const finalUrl = itemData.product_link || itemData.link || itemData.offer_link || itemData.url || "";
+    const finalUrl = itemData.product_link 
+      || itemData.link 
+      || itemData.offer_link 
+      || itemData.url 
+      || itemData.redirect_url
+      || itemData.click_link
+      || itemData.shopping_link
+      || "";
     
     // CRITICAL FIX: Check source, then merchant.name, then extract domain. Never return "Unknown" if URL exists.
     const finalSource = itemData.merchant?.name || itemData.source || extractDomain(finalUrl) || "Web";
