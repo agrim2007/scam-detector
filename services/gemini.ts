@@ -381,7 +381,6 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       priceAvailable: priceMin > 0,
       inStock: priceMin > 0,
     };
-
     console.log("✅ RETURNING RESULT:");
     console.log(`   name: "${result.name}"`);
     console.log(`   priceMin: ${result.priceMin}`);
