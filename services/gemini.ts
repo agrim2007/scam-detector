@@ -271,15 +271,8 @@ function isTrustedStore(link: string): boolean {
     }
   }
 
-  for (const trusted of TRUSTED_STORES) {
-    if (lowerLink.includes(trusted)) {
-      console.log(`  ✅ TRUSTED: "${trusted}" - ACCEPTING`);
-      return true;
-    }
-  }
-
-  console.log(`  ❌ UNKNOWN: Not in trusted list - REJECTING`);
-  return false;
+  console.log(`  ✅ ACCEPTED: Not in blocked list`);
+  return true;
 }
 
 function detectStockStatus(item: any): boolean {
@@ -376,9 +369,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       throw new Error("No shopping results found for this product");
     }
 
-    console.log("\n🔐 STEP 3A: STRICT whitelist filtering...");
-    console.log("   ✅ ACCEPTING: Amazon.in, Flipkart, Myntra, Croma, Reliance, Tata CLiQ, Boat, Samsung, Apple");
-    console.log("   ❌ BLOCKING: Alibaba, Ubuy, IndiaMart, eBay, and unknown stores\n");
+    console.log("\n🔐 STEP 3A: STRICT blocklist filtering...");
+    console.log("   ❌ BLOCKING: Alibaba, Ubuy, IndiaMart, eBay, and other untrusted sources\n");
 
     let bestDeal = null;
     let bestStoreName = '';
@@ -422,9 +414,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
 
     if (!bestDeal) {
       throw new Error(
-        `❌ No in-stock products from trusted stores found.\n` +
-        `Try scanning a more common/popular product.\n` +
-        `Trusted stores: Amazon.in, Flipkart, Myntra, Croma, Reliance, Tata CLiQ, Boat, Samsung, Apple`
+        `❌ No in-stock products found with valid prices.\n` +
+        `Try scanning a different product.`
       );
     }
 
