@@ -370,8 +370,10 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
 
     for (let i = 0; i < allResults.length; i++) {
       const item = allResults[i];
-      const link = item.link || '';
-      const source = item.source || 'Unknown';
+      const link = item.link || item.url || item.product_link || item.shopping_link || '';
+      const source = item.source || item.merchant || 'Unknown';
+
+      console.log(`  🔗 Item ${i}: link="${link.substring(0, 40)}" source="${source}"`);
 
       if (!isTrustedStore(link)) {
         continue;
