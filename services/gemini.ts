@@ -49,6 +49,17 @@ const BLACKLISTED_DOMAINS = [
   'shopee',
 ];
 
+function getDomainFromUrl(url: string): string {
+  if (!url) return 'Unknown';
+  
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname || 'Unknown';
+  } catch (e) {
+    return 'Unknown';
+  }
+}
+
 async function uploadToImgBB(base64Image: string): Promise<string> {
   const formData = new FormData();
   const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, "");
@@ -103,11 +114,11 @@ async function cleanNameWithGroq(rawTitle: string): Promise<string> {
         "Authorization": `Bearer ${GROQ_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192",
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
         messages: [
           {
             role: "system",
-            content: "You are a product name extractor. Extract ONLY the precise commercial product name from the user's text. Remove words like 'Review', 'Unboxing', 'India', 'Price'. Do not add any conversational text. Return only the product name, nothing else.",
+            content: "Extract clean commercial product name. No conversational text. Return only the product name.",
           },
           {
             role: "user",
@@ -130,7 +141,7 @@ async function cleanNameWithGroq(rawTitle: string): Promise<string> {
     console.log(`🤖 Groq cleaned: "${cleanName}"`);
     return cleanName;
   } catch (error) {
-    console.warn("⚠️ Groq request failed, using raw title:", error);
+    console.warn("⚠️ Groq request failed:", error);
     return rawTitle;
   }
 }
@@ -139,18 +150,22 @@ function safeExtractPrice(item: any): { min: number; max: number } {
   const extracted = item.extracted_price;
   
   if (typeof extracted === 'number' && extracted > 0) {
+    console.log(`  💰 Found extracted_price: ₹${extracted.toLocaleString('en-IN')}`);
     return { min: Math.round(extracted), max: Math.round(extracted) };
   }
 
   const priceStr = (item.price || '').toString().trim();
-  if (!priceStr) return { min: 0, max: 0 };
+  if (!priceStr) {
+    console.log(`  💰 No price found`);
+    return { min: 0, max: 0 };
+  }
 
   const rangeMatch = priceStr.match(/Rs\.?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)\s*[-–]\s*Rs\.?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/i);
   if (rangeMatch) {
     const min = parseInt(rangeMatch[1].replace(/,/g, ''), 10);
     const max = parseInt(rangeMatch[2].replace(/,/g, ''), 10);
     if (min > 0 && max > 0) {
-      console.log(`💰 Price range: ₹${min.toLocaleString('en-IN')} - ₹${max.toLocaleString('en-IN')}`);
+      console.log(`  💰 Price range: ₹${min.toLocaleString('en-IN')} - ₹${max.toLocaleString('en-IN')}`);
       return { min, max };
     }
   }
@@ -159,7 +174,7 @@ function safeExtractPrice(item: any): { min: number; max: number } {
   if (singleMatch) {
     const price = parseInt(singleMatch[1].replace(/,/g, ''), 10);
     if (price > 0) {
-      console.log(`💰 Price: ₹${price.toLocaleString('en-IN')}`);
+      console.log(`  💰 Price: ₹${price.toLocaleString('en-IN')}`);
       return { min: price, max: price };
     }
   }
@@ -168,11 +183,12 @@ function safeExtractPrice(item: any): { min: number; max: number } {
   if (simpleMatch) {
     const price = parseInt(simpleMatch[1], 10);
     if (price > 0) {
-      console.log(`💰 Price: ₹${price.toLocaleString('en-IN')}`);
+      console.log(`  💰 Price: ₹${price.toLocaleString('en-IN')}`);
       return { min: price, max: price };
     }
   }
 
+  console.log(`  💰 No valid price format found`);
   return { min: 0, max: 0 };
 }
 
@@ -264,7 +280,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
 
     for (let i = 0; i < allResults.length; i++) {
       const item = allResults[i];
-      console.log(`Result ${i + 1}: ${item.source || 'Unknown'}`);
+      const itemSource = item.source || getDomainFromUrl(item.link || item.url || '');
+      console.log(`Result ${i + 1}: ${itemSource}`);
 
       const score = calculateScore(item);
       const { min, max } = safeExtractPrice(item);
@@ -288,25 +305,37 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     }
 
     const bestCandidate = scoredResults[0];
-    const { item, score, priceMin, priceMax } = bestCandidate;
+    const itemData = bestCandidate.item;
+    const scoreValue = bestCandidate.score;
+    const priceMin = bestCandidate.priceMin;
+    const priceMax = bestCandidate.priceMax;
+    const shopUrl = itemData.link || itemData.url || '';
+    const storeName = itemData.source || getDomainFromUrl(shopUrl);
+
+    console.log("🏆 BEST CANDIDATE SELECTED!");
+    console.log(`   Name: ${cleanProductName}`);
+    console.log(`   Price: ₹${priceMin}${priceMax > priceMin ? ` - ₹${priceMax}` : ''}`);
+    console.log(`   Store: ${storeName}`);
+    console.log(`   Score: ${scoreValue}`);
+    console.log(`   URL: ${shopUrl}\n`);
 
     const result: ProductResult = {
       name: cleanProductName,
-      priceMin,
-      priceMax,
-      shopUrl: item.link || item.url || '',
+      priceMin: priceMin,
+      priceMax: priceMax,
+      shopUrl: shopUrl,
       currency: '₹',
-      sourceName: item.source || 'Unknown',
-      confidence: Math.min(95, 50 + Math.floor(score / 2)),
-      score,
+      sourceName: storeName,
+      confidence: Math.min(95, 50 + Math.floor(scoreValue / 2)),
+      score: scoreValue,
     };
 
-    console.log("🏆 BEST CANDIDATE SELECTED!");
-    console.log(`   Name: ${result.name}`);
-    console.log(`   Price: ₹${result.priceMin}${result.priceMax > result.priceMin ? ` - ₹${result.priceMax}` : ''}`);
-    console.log(`   Store: ${result.sourceName}`);
-    console.log(`   Score: ${score}`);
-    console.log(`   Confidence: ${result.confidence}%\n`);
+    console.log("✅ RETURNING RESULT:");
+    console.log(`   name: "${result.name}"`);
+    console.log(`   priceMin: ${result.priceMin}`);
+    console.log(`   priceMax: ${result.priceMax}`);
+    console.log(`   sourceName: "${result.sourceName}"`);
+    console.log(`   shopUrl: "${result.shopUrl}"\n`);
 
     return result;
   } catch (error) {
