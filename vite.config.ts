@@ -3,11 +3,13 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
+  const env = loadEnv(mode, '.', 'VITE_');
   return {
     plugins: [react()],
     define: {
-      'process.env.API_KEY': JSON.stringify(env.API_KEY)
+      'import.meta.env.VITE_IMGBB_API_KEY': JSON.stringify(env.VITE_IMGBB_API_KEY),
+      'import.meta.env.VITE_SEARCHAPI_KEY': JSON.stringify(env.VITE_SEARCHAPI_KEY),
+      'import.meta.env.VITE_GROQ_API_KEY': JSON.stringify(env.VITE_GROQ_API_KEY)
     },
     server: {
       port: 5174,       // <--- Forces port 5174
