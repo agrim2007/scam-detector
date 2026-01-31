@@ -220,6 +220,26 @@ function sanitizeProductName(rawTitle: string): string {
   return cleanName;
 }
 
+async function fetchPriceFromPage(url: string): Promise<{ price: number; inStock: boolean }> {
+  try {
+    const response = await fetch(url);
+    const html = await response.text();
+    
+    const priceRegex = /[₹]?\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/;
+    const priceMatch = html.match(priceRegex);
+    const price = priceMatch ? parseInt(priceMatch[1].replace(/,/g, ''), 10) : 0;
+    
+    const outOfStockRegex = /out of stock|unavailable|sold out/i;
+    const inStock = !outOfStockRegex.test(html);
+    
+    console.log(`   📄 Fetched price: ₹${price}, stock: ${inStock ? '✅' : '❌'}`);
+    return { price, inStock };
+  } catch (error) {
+    console.warn(`   ⚠️ Failed to fetch page:`, error);
+    return { price: 0, inStock: false };
+  }
+}
+
 async function searchGoogleShopping(productName: string): Promise<any[]> {
   try {
     const searchUrl = new URL("https://www.searchapi.io/api/v1/search");
@@ -373,10 +393,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       let link = item.link || item.url || item.product_link || item.shopping_link || '';
       const source = item.source || item.merchant || item.title || 'Unknown';
 
-      console.log(`  🔗 Result ${i + 1}: raw_link="${link.substring(0, 40)}" source="${source.substring(0, 40)}"`);
-
       if (link.includes('google.com/search')) {
-        console.log(`  ❌ GOOGLE SEARCH LINK - SKIPPING (no price info)`);
+        console.log(`  ❌ GOOGLE SEARCH LINK - SKIPPING`);
         continue;
       }
 
@@ -385,26 +403,27 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       }
 
       trustedCount++;
-
-      const inStock = detectStockStatus(item);
-      console.log(`    📦 Stock: ${inStock ? '✅ IN STOCK' : '❌ OUT OF STOCK'}`);
-
+      console.log(`  🌐 Following link to fetch actual price...`);
+      
+      const { price, inStock } = await fetchPriceFromPage(link);
+      
       if (!inStock) {
-        console.log(`       Skipping out-of-stock item`);
+        console.log(`  ❌ OUT OF STOCK - SKIPPING`);
+        continue;
+      }
+
+      if (price <= 0) {
+        console.log(`  ❌ NO PRICE FOUND - SKIPPING`);
         continue;
       }
 
       inStockCount++;
-
-      const { min, max } = extractPrice(item);
-      const hasPrice = min > 0;
-
-      console.log(`    💵 Price available: ${hasPrice ? '✅ YES' : '❌ NO'}`);
-
-      if (!bestDeal && hasPrice) {
-        bestDeal = item;
+      
+      if (!bestDeal) {
+        bestDeal = { ...item, priceMin: price, priceMax: price, inStock: true };
         bestStoreName = source;
-        console.log(`    🎯 SELECTED THIS RESULT!\n`);
+        console.log(`  ✅ FOUND IN-STOCK PRODUCT WITH PRICE! ₹${price}\n`);
+        break;
       }
     }
 
