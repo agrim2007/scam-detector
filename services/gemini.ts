@@ -220,6 +220,27 @@ function sanitizeProductName(rawTitle: string): string {
   return cleanName;
 }
 
+async function extractProductLinkFromSearchResult(searchUrl: string): Promise<string> {
+  try {
+    const response = await fetch(searchUrl);
+    const html = await response.text();
+    
+    const linkRegex = /href=["']([^"']*?amazon\.in[^"']*?)["']/i;
+    const match = html.match(linkRegex);
+    
+    if (match && match[1]) {
+      const cleanLink = match[1].replace(/&amp;/g, '&');
+      console.log(`   ✅ Extracted product link: ${cleanLink.substring(0, 60)}...`);
+      return cleanLink;
+    }
+    
+    return '';
+  } catch (error) {
+    console.warn(`   ⚠️ Failed to extract link from search result:`, error);
+    return '';
+  }
+}
+
 async function fetchPriceFromPage(url: string): Promise<{ price: number; inStock: boolean }> {
   try {
     const response = await fetch(url);
@@ -393,9 +414,15 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       let link = item.link || item.url || item.product_link || item.shopping_link || '';
       const source = item.source || item.merchant || item.title || 'Unknown';
 
+      if (!link) continue;
+
       if (link.includes('google.com/search')) {
-        console.log(`  ❌ GOOGLE SEARCH LINK - SKIPPING`);
-        continue;
+        console.log(`  🔍 Google search link - extracting product link from page...`);
+        link = await extractProductLinkFromSearchResult(link);
+        if (!link) {
+          console.log(`  ❌ Could not extract product link - SKIPPING`);
+          continue;
+        }
       }
 
       if (!isTrustedStore(link)) {
@@ -420,7 +447,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       inStockCount++;
       
       if (!bestDeal) {
-        bestDeal = { ...item, priceMin: price, priceMax: price, inStock: true };
+        bestDeal = { ...item, link, priceMin: price, priceMax: price, inStock: true };
         bestStoreName = source;
         console.log(`  ✅ FOUND IN-STOCK PRODUCT WITH PRICE! ₹${price}\n`);
         break;
