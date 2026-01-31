@@ -49,6 +49,17 @@ const BLACKLISTED_DOMAINS = [
   'shopee',
 ];
 
+function extractDomain(url: string): string {
+  if (!url) return 'Web';
+  
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname || 'Web';
+  } catch (e) {
+    return 'Web';
+  }
+}
+
 function getDomainFromUrl(url: string): string {
   if (!url) return 'Unknown';
   
@@ -93,7 +104,10 @@ async function identifyWithGoogleLens(imageUrl: string): Promise<string> {
   if (data.error) throw new Error(`Google Lens error: ${data.error}`);
 
   const visualMatches = data.visual_matches || [];
-  if (visualMatches.length === 0) throw new Error("No visual matches found");
+  if (!visualMatches || visualMatches.length === 0) {
+    console.warn("⚠️ No visual matches found from Google Lens");
+    return "No Product Identified";
+  }
 
   const rawTitle = visualMatches[0].title || "Unknown Product";
   console.log(`🔍 Raw identification: "${rawTitle}"`);
@@ -249,6 +263,17 @@ async function searchGoogleShopping(productName: string): Promise<any[]> {
 }
 
 export async function identifyProduct(imageSrc: string): Promise<ProductResult> {
+  const ERROR_RESULT: ProductResult = {
+    name: "No Product Found",
+    priceMin: 0,
+    priceMax: 0,
+    shopUrl: "",
+    currency: "₹",
+    sourceName: "N/A",
+    confidence: 0,
+    score: 0,
+  };
+
   try {
     if (!IMGBB_API_KEY || !SEARCHAPI_KEY) {
       throw new Error("Missing API keys: VITE_IMGBB_API_KEY, VITE_SEARCHAPI_KEY required");
@@ -263,6 +288,12 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
 
     console.log("\n🔍 STEP 2A: Google Lens visual identification...");
     const rawTitle = await identifyWithGoogleLens(imageUrl);
+    
+    // SAFETY CHECK: If Google Lens found no matches, return early with error result
+    if (rawTitle === "No Product Identified") {
+      console.log("⚠️ Google Lens could not identify the product. Please try with a clearer image.");
+      return ERROR_RESULT;
+    }
 
     console.log("\n🤖 STEP 2B: Groq intelligent name cleaning...");
     const cleanProductName = await cleanNameWithGroq(rawTitle);
@@ -311,25 +342,25 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     const priceMax = bestCandidate.priceMax;
     
     // CRITICAL: Check all possible link fields in SearchAPI response
-    const finalLink = itemData.link || itemData.product_link || itemData.offer_link || itemData.url || '';
+    const finalUrl = itemData.product_link || itemData.link || itemData.offer_link || itemData.url || "";
     
-    // CRITICAL: Check source, then merchant.name, then extract from URL
-    const storeName = itemData.source || itemData.merchant?.name || getDomainFromUrl(finalLink);
+    // CRITICAL FIX: Check source, then merchant.name, then extract domain. Never return "Unknown" if URL exists.
+    const finalSource = itemData.merchant?.name || itemData.source || extractDomain(finalUrl) || "Web";
 
     console.log("🏆 BEST CANDIDATE SELECTED!");
     console.log(`   Name: ${cleanProductName}`);
     console.log(`   Price: ₹${priceMin}${priceMax > priceMin ? ` - ₹${priceMax}` : ''}`);
-    console.log(`   Store: ${storeName}`);
+    console.log(`   Store: ${finalSource}`);
     console.log(`   Score: ${scoreValue}`);
-    console.log(`   URL: ${finalLink}\n`);
+    console.log(`   URL: ${finalUrl}\n`);
 
     const result: ProductResult = {
       name: cleanProductName,
       priceMin: priceMin,
       priceMax: priceMax,
-      shopUrl: finalLink,
+      shopUrl: finalUrl,
       currency: '₹',
-      sourceName: storeName,
+      sourceName: finalSource,
       confidence: Math.min(95, 50 + Math.floor(scoreValue / 2)),
       score: scoreValue,
     };
@@ -339,7 +370,8 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     console.log(`   priceMin: ${result.priceMin}`);
     console.log(`   priceMax: ${result.priceMax}`);
     console.log(`   sourceName: "${result.sourceName}"`);
-    console.log(`   shopUrl: "${result.shopUrl}"\n`);
+    console.log(`   shopUrl: "${result.shopUrl}"`);
+    console.log(`   confidence: ${result.confidence}\n`);
 
     return result;
   } catch (error) {
