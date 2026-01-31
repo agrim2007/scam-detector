@@ -10,9 +10,15 @@ interface ProductResult {
   confidence: number;
 }
 
-const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY;
-const SEARCHAPI_KEY = import.meta.env.VITE_SEARCHAPI_KEY;
-const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY;
+const IMGBB_API_KEY = import.meta.env.VITE_IMGBB_API_KEY || '';
+const SEARCHAPI_KEY = import.meta.env.VITE_SEARCHAPI_KEY || '';
+const GROQ_API_KEY = import.meta.env.VITE_GROQ_API_KEY || '';
+
+console.log('🔑 Environment Variables Check:');
+console.log(`   VITE_IMGBB_API_KEY: ${IMGBB_API_KEY ? '✅ LOADED' : '❌ MISSING'}`);
+console.log(`   VITE_SEARCHAPI_KEY: ${SEARCHAPI_KEY ? '✅ LOADED' : '❌ MISSING'}`);
+console.log(`   VITE_GROQ_API_KEY: ${GROQ_API_KEY ? '✅ LOADED' : '❌ MISSING'}`);
+
 
 const TRUSTED_STORES = [
   'amazon.in',
@@ -341,7 +347,10 @@ function extractPrice(item: any): { min: number; max: number } {
 export async function identifyProduct(imageSrc: string): Promise<ProductResult> {
   try {
     if (!IMGBB_API_KEY || !SEARCHAPI_KEY) {
-      throw new Error("Missing API keys: VITE_IMGBB_API_KEY or VITE_SEARCHAPI_KEY");
+      const missing = [];
+      if (!IMGBB_API_KEY) missing.push('VITE_IMGBB_API_KEY');
+      if (!SEARCHAPI_KEY) missing.push('VITE_SEARCHAPI_KEY');
+      throw new Error(`Missing required API keys: ${missing.join(', ')}. Check Vercel Environment Variables.`);
     }
 
     console.log("\n╔══════════════════════════════════════════════════════════════╗");
