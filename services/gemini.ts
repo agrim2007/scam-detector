@@ -248,7 +248,10 @@ async function searchGoogleShopping(productName: string): Promise<any[]> {
 }
 
 function isTrustedStore(link: string): boolean {
-  if (!link) return false;
+  if (!link) {
+    console.log(`  ❌ NO LINK - REJECTING`);
+    return false;
+  }
 
   const lowerLink = link.toLowerCase();
 
@@ -259,7 +262,7 @@ function isTrustedStore(link: string): boolean {
     }
   }
 
-  console.log(`  ✅ ACCEPTED: Not in blocked list`);
+  console.log(`  ✅ ACCEPTED: ${link.substring(0, 50)}...`);
   return true;
 }
 
@@ -398,7 +401,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
       }
     }
 
-    console.log(`📊 Summary: ${trustedCount} from trusted stores, ${inStockCount} in stock`);
+    console.log(`📊 Summary: ${trustedCount} results found, ${inStockCount} in stock`);
 
     if (!bestDeal) {
       throw new Error(
