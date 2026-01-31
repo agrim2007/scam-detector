@@ -338,7 +338,7 @@ export async function identifyProduct(imageSrc: string): Promise<ProductResult> 
     }
 
     console.log("\n╔══════════════════════════════════════════════════════════════╗");
-    console.log("║        SCAN & PRICE - AI-POWERED PRODUCT IDENTIFICATION      ║");
+    console.log("║           SCAN & PRICE - PRODUCT PRICE FINDER                ║");
     console.log("╚══════════════════════════════════════════════════════════════╝\n");
 
     console.log("📸 STEP 1: Uploading image to ImgBB...");
