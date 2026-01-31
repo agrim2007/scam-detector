@@ -1,8 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { CameraView } from './components/CameraView';
-import { ResultCard } from './components/ResultCard';
+import { CameraView, ResultCard, ProductResult } from './components';
 import { identifyProduct } from './services/gemini';
-import { ProductResult } from './types'; // <--- Now imports correctly
 
 export default function App() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
